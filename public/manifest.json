@@ -1,0 +1,18 @@
+{
+  "name": "AI CV Generator Pro",
+  "short_name": "AI CV Pro",
+  "description": "Professional AI-powered CV and Cover Letter generator",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#7C3AED",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

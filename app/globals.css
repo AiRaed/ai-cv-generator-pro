@@ -1,0 +1,1016 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #1C1C1E;
+}
+
+.dark {
+  --background: #0D0D0D;
+  --foreground: #EAEAEA;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  transition: background-color 300ms ease, color 300ms ease;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #7C3AED;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6d28d9;
+}
+
+/* Premium gradient effects */
+.gradient-ring {
+  position: relative;
+  overflow: hidden;
+}
+
+.gradient-ring::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #7C3AED, #8B5CF6, #A78BFA);
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+
+.gradient-ring:hover::before {
+  opacity: 0.3;
+}
+
+.gradient-ring:active::before {
+  opacity: 0.5;
+}
+
+/* A4 Preview Frame Container - Responsive for on-screen preview */
+.a4-preview-frame {
+  width: 100%;
+  max-width: 800px;
+  aspect-ratio: 1 / 1.414;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  margin: 0 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive scaling for smaller screens */
+@media (max-width: 1024px) {
+  .a4-preview-frame {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .a4-preview-frame {
+    max-width: 100%;
+    aspect-ratio: 1 / 1.5; /* Slightly taller on small screens */
+  }
+}
+
+/* A4 Paper Content - Responsive for on-screen preview */
+.a4-paper {
+  width: 100%;
+  min-height: 100%;
+  background: #ffffff !important;
+  padding: 18mm 20mm;
+  margin: 0;
+  color: #000000 !important;
+  box-sizing: border-box;
+}
+
+/* Scale down padding proportionally on smaller screens */
+@media (max-width: 1024px) {
+  .a4-paper {
+    padding: 16mm;
+  }
+}
+
+@media (max-width: 640px) {
+  .a4-paper {
+    padding: 12mm;
+  }
+}
+
+/* Ensure dark theme doesn't affect paper in preview */
+.dark .a4-paper {
+  background: #ffffff !important;
+}
+
+.dark .a4-paper * {
+  color: #000000 !important;
+}
+
+/* CV Page - Theme Independent Container */
+.cv-page {
+  background: transparent !important;
+  color: #000000 !important;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  min-height: auto;
+}
+
+.cv-page * {
+  color: #000000 !important;
+}
+
+.cv-page h1,
+.cv-page h2,
+.cv-page h3,
+.cv-page h4,
+.cv-page h5,
+.cv-page h6 {
+  color: #000000 !important;
+}
+
+.cv-page p,
+.cv-page div,
+.cv-page span,
+.cv-page li,
+.cv-page ul,
+.cv-page ol {
+  color: #000000 !important;
+}
+
+.cv-page .border-gray-300,
+.cv-page .border-gray-700 {
+  border-color: #D1D5DB !important;
+}
+
+.cv-placeholder {
+  color: #999999 !important;
+  font-style: italic;
+}
+
+/* CV Header Container - Professional Layout */
+.cv-header-container {
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* CV Name - Strong and Prominent */
+.cv-name {
+  font-size: 1.875rem; /* 30px / text-3xl */
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 0;
+  color: #000000 !important;
+  letter-spacing: -0.02em;
+  flex: 1;
+  min-width: 200px;
+}
+
+/* CV Contact Info - Compact, Secondary Style (Professional CV Template) */
+.cv-contact-info {
+  font-size: 0.6875rem; /* 11px - smaller for professional look */
+  font-weight: 400; /* normal weight - lighter than section titles */
+  line-height: 1.35; /* slightly reduced for compact spacing */
+  color: #4B5563; /* text-gray-600 */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem; /* tight spacing between lines */
+  margin-bottom: 0;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Preview-only: Single compact row layout with dot separators */
+.a4-paper .cv-header-container {
+  align-items: baseline;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.a4-paper .cv-header-container .cv-name {
+  width: 100%;
+  text-align: center;
+}
+
+.a4-paper .cv-header-container .cv-contact-info {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center; /* centered under name */
+  gap: 0.25rem 0.4rem; /* tighter horizontal and vertical gaps */
+  font-size: 0.65rem; /* ≈10.5px - smaller font */
+  line-height: 1.25; /* tighter line height */
+  font-weight: 400;
+  color: #4b5563;
+  margin-top: 0.25rem; /* 4px below the name block */
+  margin-bottom: 0.375rem; /* 6px above the divider line */
+  text-align: center;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+}
+
+.a4-paper .cv-header-container .cv-contact-info .cv-contact-link,
+.a4-paper .cv-header-container .cv-contact-info .cv-contact-text {
+  font-size: 0.65rem; /* ≈10.5px - smaller font */
+  line-height: 1.25; /* tighter line height */
+  font-weight: 400;
+  color: #4b5563;
+  overflow-wrap: anywhere; /* Links can wrap anywhere */
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.a4-paper .cv-header-container .cv-contact-info .cv-contact-link {
+  text-decoration: none;
+}
+
+.a4-paper .cv-header-container .cv-contact-info .cv-contact-link:hover {
+  color: #4b5563;
+  text-decoration: none;
+}
+
+.a4-paper .cv-header-container .cv-contact-info .cv-contact-separator {
+  margin: 0 0.25rem; /* tighter spacing */
+  font-size: 0.65rem; /* ≈10.5px - smaller font */
+  color: #4b5563;
+  white-space: nowrap;
+}
+
+/* Alternative inline layout for single/double line when space is limited */
+.cv-contact-info-inline {
+  font-size: 0.6875rem; /* 11px */
+  font-weight: 400;
+  line-height: 1.35;
+  color: #4B5563;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+/* Contact info line wrapper for two-line layout */
+.cv-contact-line {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* CV Contact Link - Styled text links */
+.cv-contact-link {
+  color: #4B5563 !important;
+  text-decoration: none;
+  font-weight: 400;
+  font-size: 0.6875rem; /* 11px - consistent with parent */
+  transition: color 0.15s ease;
+}
+
+.cv-contact-link:hover {
+  color: #1F2937 !important;
+}
+
+/* CV Contact Text - Non-link text */
+.cv-contact-text {
+  color: #4B5563 !important;
+  font-weight: 400;
+  font-size: 0.6875rem; /* 11px - consistent with parent */
+}
+
+/* CV Contact Separator - Dot separator */
+.cv-contact-separator {
+  color: #9CA3AF !important; /* text-gray-400, lighter for subtlety */
+  margin: 0 0.1875rem; /* 3px - tighter spacing */
+  font-weight: 400;
+  font-size: 0.6875rem; /* 11px - consistent with parent */
+}
+
+/* CV Header Divider */
+.cv-header-divider {
+  border-bottom: 1px solid #D1D5DB;
+  padding-bottom: 0.375rem; /* reduced from 0.5rem for compact look */
+  margin-bottom: 0.75rem;
+  margin-top: 0; /* No top margin - spacing handled by contact info margin-bottom */
+  width: 100%;
+  flex-basis: 100%; /* full width on new line */
+  order: 3; /* appears after name and contact info */
+}
+
+/* Responsive: Stack contact info below name on smaller screens */
+@media (max-width: 640px) {
+  .cv-header-container {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .cv-contact-info {
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+  }
+  
+  .cv-contact-line {
+    justify-content: flex-start;
+  }
+}
+
+/* CV Layout - Print-ready spacing and typography */
+.cv-section-spacing {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.cv-section-spacing:first-of-type {
+  margin-top: 0.5rem;
+}
+
+.cv-section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #000000 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.cv-text-content {
+  color: #111111 !important;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.cv-experience-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cv-experience-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Company/School name styling - medium weight, slightly larger, clean sans-serif */
+.cv-company-name,
+.cv-school-name {
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 1rem; /* 16px, +1pt from base 14px/0.875rem */
+  font-style: normal;
+  color: #374151; /* text-gray-700 */
+  line-height: 1.5;
+}
+
+/* Role/Degree title styling - bold/semi-bold */
+.cv-role-title,
+.cv-degree-title {
+  font-weight: 600; /* font-semibold */
+  color: #1F2937; /* text-gray-800 */
+  line-height: 1.5;
+}
+
+/* Description text - lighter weight, smaller size */
+.cv-description-text {
+  color: #111111 !important;
+  font-size: 0.875rem;
+  font-weight: 400; /* normal weight */
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Container for bullet lists - remove top padding/margin */
+.cv-description-has-bullets {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.cv-description-has-bullets > :first-child {
+  margin-top: 0;
+}
+
+/* When cv-description-has-bullets contains a cv-bullet-item block, use flexbox for perfect alignment */
+.cv-description-has-bullets > .cv-bullet-item {
+  line-height: 1.35; /* Consistent line height */
+}
+
+/* Bullet list items with flexbox layout - wrapped lines align exactly with first letter */
+.cv-bullet-item {
+  line-height: 1.35; /* Consistent line height matching AI Preview & PDF */
+  margin-bottom: 0;
+  margin-top: 0;
+  color: #111111 !important;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  text-align: left;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Bullet marker - doesn't shrink, takes only the space it needs */
+.cv-bullet-marker {
+  flex-shrink: 0;
+  white-space: pre;
+}
+
+/* Bullet content - wraps properly, wrapped lines align with first letter */
+.cv-bullet-content {
+  flex: 1;
+  white-space: pre-wrap; /* Preserve line breaks exactly */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.cv-bullet-item:first-child {
+  margin-top: 0; /* No top margin before first bullet */
+}
+
+.cv-bullet-item:last-child {
+  margin-bottom: 0; /* No margin after last bullet item */
+}
+
+/* Empty lines between sections - preserve spacing between job entries */
+.cv-description-empty-line {
+  height: 0.5rem; /* 8px - maintains spacing between job entries */
+  display: block;
+}
+
+/* Regular description lines (non-bullet) */
+.cv-description-line {
+  display: block;
+  color: #111111 !important;
+}
+
+/* AI Preview Text - Clean formatting for AI-generated content */
+.ai-preview-text {
+  font-size: 0.875rem; /* 14px */
+  line-height: 1.6
+  ; /* Consistent line height */
+  color: #374151;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-weight: 400;
+}
+
+.dark .ai-preview-text {
+  color: #ffffff; /* White text for readability on dark background - pure white */
+}
+
+.dark .ai-preview-text .ai-preview-line,
+.dark .ai-preview-text .ai-preview-bullet-item {
+  color: #ffffff; /* Pure white */
+}
+
+.ai-preview-line {
+  display: block;
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+}
+
+.ai-preview-empty-line {
+  height: 0.5rem;
+  display: block;
+}
+
+/* Container for AI preview bullet lists - remove top padding/margin */
+.ai-preview-has-bullets {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.ai-preview-has-bullets > :first-child {
+  margin-top: 0;
+}
+
+/* Stable Formatting Mode: Plain text with hanging indent for bullets */
+.ai-preview-stable {
+  white-space: pre-wrap !important; /* Preserve line breaks exactly */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Apply hanging indent when bullets are present */
+/* Note: Remove padding/indent from parent since each bullet item handles its own indentation */
+.ai-preview-stable.ai-preview-has-bullets {
+  padding-left: 0; /* No padding on parent - children handle their own indentation */
+  text-indent: 0; /* No text-indent on parent - children handle their own indentation */
+  line-height: 1.35; /* Consistent line height matching Preview & PDF */
+}
+
+/* AI Preview output box - main container styling */
+.ai-preview {
+  white-space: pre-line;
+  padding-left: 1.45em;
+  text-indent: -0.3em;
+  line-height: 1.4;
+  color: #374151;
+}
+
+.dark .ai-preview {
+  color: #ffffff;
+}
+
+/* Bullet items with hanging indent - wrapped lines align under first letter */
+.ai-preview-bullet-item {
+  line-height: 1.4; /* Consistent line height */
+  margin-bottom: 0.2em; /* Consistent spacing between bullets */
+  margin-top: 0; /* No top margin */
+  display: block;
+  /* Hanging indent: wrapped lines align exactly at padding-left
+   * The text-indent pulls the first line (including "- ") back
+   * So: padding-left = where content text starts = where wrapped lines align */
+  padding-left: 1.5em; /* Wrapped lines start here, exactly under first letter of content */
+  text-indent: -0.5em; /* Pull first line back by 0.5em to accommodate "- " marker */
+  text-align: left;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal; /* Allow normal wrapping for proper hanging indent */
+  padding-right: 0;
+  margin-left: 0;
+  margin-right: 0;
+  box-sizing: border-box;
+}
+
+.ai-preview-bullet-item:first-child {
+  margin-top: 0; /* No top margin before first bullet */
+}
+
+.ai-preview-bullet-item:last-child {
+  margin-bottom: 0; /* No margin after last bullet */
+}
+
+
+.cv-education-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cv-education-item {
+  margin: 0;
+}
+
+/* Ensure compact spacing for print/PDF */
+@media print {
+  .cv-section-spacing {
+    margin-top: 1rem;
+    margin-bottom: 0.625rem;
+    /* Removed page-break-inside: avoid to allow sections to break across pages naturally */
+  }
+  
+  .cv-section-title {
+    page-break-after: avoid; /* Keep heading with first bullet/line */
+    margin-bottom: 0.375rem;
+  }
+  
+  .cv-experience-list {
+    gap: 0.625rem;
+  }
+  
+  .cv-experience-item {
+    page-break-inside: avoid; /* Keep individual experience items together if they fit */
+    gap: 0.25rem;
+  }
+  
+  .cv-text-content,
+  .cv-description-text {
+    line-height: 1.4;
+    orphans: 2; /* Minimum 2 lines at bottom - prevents last line from splitting */
+    widows: 2; /* Minimum 2 lines at top - moves entire content if only 1 line would appear */
+    font-weight: 400; /* normal weight */
+  }
+  
+  /* Prevent page breaks inside bullet items, list items, description lines, and paragraphs */
+  /* Consolidated rule for all bullet-related elements to avoid splitting across pages */
+  .cv-bullet-item,
+  .ai-preview-bullet-item,
+  li,
+  .cv-description-line,
+  p {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Minimum 2 lines at bottom of page - prevents last line from splitting */
+    widows: 2 !important; /* Minimum 2 lines at top of page - moves entire element if only 1 line would appear */
+  }
+  
+  /* Prevent any text element from splitting across pages */
+  /* Ensure specific text elements don't break */
+  .cv-text-content,
+  .cv-description-text,
+  .cv-bullet-content,
+  .cv-bullet-marker,
+  .ai-preview-text,
+  .ai-preview-line {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Prevent last line from splitting */
+    widows: 2 !important; /* Move entire element if only 1 line would appear at top */
+  }
+  
+  /* For paragraphs, ensure the entire last line moves to next page if it doesn't fit */
+  .cv-text-content,
+  .cv-description-text,
+  p {
+    orphans: 2 !important; /* At least 2 lines must stay with previous content */
+    widows: 2 !important; /* At least 2 lines must move to next page if less than 2 - prevents single line at top */
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  
+  /* Ensure bullet items never split - move entire bullet if it would be split */
+  .cv-bullet-item,
+  .ai-preview-bullet-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Prevent last line from splitting */
+    widows: 2 !important; /* Move entire bullet if only 1 line would appear at top */
+    /* Prevent the bullet marker and content from separating */
+    display: flex !important;
+    flex-wrap: nowrap !important;
+  }
+  
+  /* Prevent individual lines within description text from splitting */
+  .cv-description-line {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Prevent last line from splitting */
+    widows: 2 !important; /* Move entire line if it would be alone at top */
+    display: block !important;
+  }
+  
+  /* Bullet list items in print/PDF - maintain tight spacing with flexbox alignment */
+  .cv-bullet-item {
+    display: flex !important;
+    align-items: flex-start !important;
+    line-height: 1.35 !important; /* Consistent line height matching AI Preview */
+    margin-bottom: 0.2em !important; /* Keep small spacing */
+    margin-top: 0 !important;
+    gap: 0 !important;
+  }
+  
+  .cv-bullet-marker {
+    flex-shrink: 0 !important;
+    white-space: pre !important;
+  }
+  
+  .cv-bullet-content {
+    flex: 1 !important;
+    white-space: pre-wrap !important; /* Preserve line breaks exactly */
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+  
+  .cv-bullet-item:first-child {
+    margin-top: 0 !important;
+  }
+  
+  .cv-bullet-item:last-child {
+    margin-bottom: 0 !important;
+  }
+  
+  /* AI preview bullets in print/PDF */
+  .ai-preview-bullet-item {
+    line-height: 1.4 !important;
+    margin-bottom: 0.2em !important; /* Keep small spacing */
+    margin-top: 0 !important;
+    padding-left: 1.5em !important;
+    text-indent: -0.5em !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+  
+  .ai-preview-bullet-item:first-child {
+    margin-top: 0 !important;
+  }
+  
+  .ai-preview-bullet-item:last-child {
+    margin-bottom: 0 !important;
+  }
+  
+  .cv-description-empty-line {
+    height: 0.5rem !important; /* Maintain spacing between job entries */
+  }
+  
+  /* Preserve company/school styling in print */
+  .cv-company-name,
+  .cv-school-name {
+    font-weight: 500 !important;
+    font-size: 1rem !important;
+    font-style: normal !important;
+  }
+  
+  /* Preserve role/degree styling in print */
+  .cv-role-title,
+  .cv-degree-title {
+    font-weight: 600 !important;
+  }
+  
+  .cv-education-list {
+    gap: 0.375rem;
+  }
+  
+  .cv-education-item {
+    page-break-inside: avoid; /* Keep individual education items together if they fit */
+  }
+}
+
+/* Ensure preview is visible by default */
+.preview-surface {
+  min-height: 0;
+}
+
+/* Cover Page - Theme Independent Container */
+.cover-page {
+  background: transparent !important;
+  color: #000000 !important;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  min-height: auto;
+}
+
+.cover-page * {
+  color: #000000 !important;
+}
+
+.cover-page p,
+.cover-page div,
+.cover-page span {
+  color: #000000 !important;
+}
+
+/* Print styles for CV and Cover Letter */
+@media print {
+  @page {
+    size: A4 210mm 297mm;
+    margin: 0;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  /* Hide all elements except preview content */
+  body > *:not(.a4-paper),
+  [data-export-exclude="true"] {
+    display: none !important;
+  }
+  
+  /* Style the preview frame to full A4 size for print/export */
+  .a4-preview-frame {
+    width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    aspect-ratio: unset !important;
+    overflow: visible !important;
+  }
+  
+  /* Show and style the paper wrapper for printing */
+  .a4-paper {
+    display: block !important;
+    background: white !important;
+    color: black !important;
+    width: 210mm !important;
+    min-height: auto !important; /* Allow natural height, no forced page splits */
+    max-height: none !important;
+    padding: 0 !important; /* Remove padding - margins handled by html2pdf */
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-after: auto !important;
+    page-break-inside: auto !important; /* Allow natural page breaks */
+  }
+  
+  .cv-page,
+  .cover-page {
+    background: transparent !important;
+    color: black !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+  
+  .cv-page *,
+  .cover-page * {
+    color: black !important;
+    background: transparent !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .cv-page h1,
+  .cv-page h2,
+  .cv-page h3,
+  .cv-page h4,
+  .cv-page h5,
+  .cv-page h6,
+  .cover-page h1,
+  .cover-page h2,
+  .cover-page h3,
+  .cover-page h4,
+  .cover-page h5,
+  .cover-page h6 {
+    color: #000000 !important;
+    page-break-after: avoid !important;
+  }
+  
+  .cv-page p,
+  .cv-page div,
+  .cv-page span,
+  .cv-page ul,
+  .cv-page ol,
+  .cv-page li,
+  .cover-page p,
+  .cover-page div,
+  .cover-page span,
+  .cover-page ul,
+  .cover-page ol,
+  .cover-page li {
+    color: #000000 !important;
+  }
+  
+  /* Page break controls */
+  .page-break {
+    page-break-inside: avoid !important;
+  }
+  
+  /* Prevent single lines of text from being split across pages */
+  /* Ensure all text-containing elements don't break */
+  .cv-text-content,
+  .cv-description-text,
+  .cv-description-line,
+  .cv-bullet-item,
+  .cv-bullet-content,
+  .cv-bullet-marker,
+  .ai-preview-text,
+  .ai-preview-line,
+  .ai-preview-bullet-item,
+  p,
+  li {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Minimum 2 lines at bottom of page - prevents last line from splitting */
+    widows: 2 !important; /* Minimum 2 lines at top of page - moves entire element if only 1 line would appear */
+  }
+  
+  /* For paragraphs, ensure the entire last line moves to next page if it doesn't fit */
+  .cv-text-content,
+  .cv-description-text,
+  p {
+    orphans: 2 !important; /* At least 2 lines must stay with previous content */
+    widows: 2 !important; /* At least 2 lines must move to next page if less than 2 - prevents single line at top */
+  }
+  
+  /* Ensure bullet items never split - move entire bullet if it would be split */
+  .cv-bullet-item,
+  .ai-preview-bullet-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Prevent last line from splitting */
+    widows: 2 !important; /* Move entire bullet if only 1 line would appear at top */
+    display: flex !important;
+    flex-wrap: nowrap !important;
+  }
+  
+  /* Prevent individual lines within description text from splitting */
+  .cv-description-line {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    orphans: 2 !important; /* Prevent last line from splitting */
+    widows: 2 !important; /* Move entire line if it would be alone at top */
+    display: block !important;
+  }
+  
+  /* Ensure exact color preservation */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* ATS-safe link styling - no underline, black text */
+  .cv-page a,
+  .cover-page a {
+    color: #000000 !important;
+    text-decoration: none !important;
+    border-bottom: none !important;
+  }
+  
+  .cv-page a:hover,
+  .cover-page a:hover {
+    color: #000000 !important;
+    text-decoration: none !important;
+  }
+  
+  /* Preserve professional header styling in print */
+  .cv-header-container {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: baseline !important;
+  }
+  
+  .cv-name {
+    font-size: 1.875rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    margin-bottom: 0 !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+  
+  .cv-contact-info {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: center !important; /* centered under name */
+    gap: 0.25rem 0.4rem !important; /* tighter horizontal and vertical gaps */
+    font-size: 0.65rem !important; /* ≈10.5px - smaller font */
+    line-height: 1.25 !important; /* tighter line height */
+    font-weight: 400 !important;
+    color: #4b5563 !important;
+    margin-top: 0.25rem !important; /* 4px below the name block */
+    margin-bottom: 0.375rem !important; /* 6px above the divider line */
+    text-align: center !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: break-word !important;
+  }
+  
+  .cv-contact-link,
+  .cv-contact-text {
+    color: #4b5563 !important;
+    font-weight: 400 !important;
+    font-size: 0.65rem !important; /* ≈10.5px - smaller font */
+    line-height: 1.25 !important; /* tighter line height */
+    overflow-wrap: anywhere !important; /* Links can wrap anywhere */
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+  
+  .cv-contact-separator {
+    color: #4b5563 !important;
+    margin: 0 0.25rem !important; /* tighter spacing */
+    font-size: 0.65rem !important; /* ≈10.5px - smaller font */
+    white-space: nowrap !important;
+  }
+  
+  .cv-header-divider {
+    padding-bottom: 0.375rem !important; /* compact spacing */
+    margin-top: 0 !important; /* No top margin - spacing handled by contact info margin-bottom */
+    margin-bottom: 0.75rem !important;
+  }
+}
