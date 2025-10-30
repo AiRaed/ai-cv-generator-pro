@@ -43,15 +43,21 @@ export function Header() {
             </div>
           ) : (
             <Button
-              variant="default"
-              size="sm"
-              onClick={handleCheckout}
-              disabled={checkoutLoading}
-              isLoading={checkoutLoading}
-            >
-              <Sparkles className="w-4 h-4 mr-2" />
-              Unlock AI — £1.99
-            </Button>
+  variant="default"
+  size="sm"
+  onClick={handleCheckout}
+  disabled={checkoutLoading}
+>
+  {checkoutLoading ? (
+    <>Processing…</>
+  ) : (
+    <>
+      <Sparkles className="w-4 h-4 mr-2" />
+      Unlock AI — £1.99
+    </>
+  )}
+</Button>
+
           )}
           <ThemeToggle />
         </div>
