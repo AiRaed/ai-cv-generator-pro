@@ -261,9 +261,6 @@ export default function Home() {
               </Link>
             </div>
           </div>
-          <div className="text-center mt-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">AICVGenerator@outlook.com</p>
-          </div>
         </div>
       </footer>
     </main>
