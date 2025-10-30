@@ -213,8 +213,9 @@ export function normalizeSummaryParagraph(text: string): string {
 }
 
 /**
- * Normalize cover letter text to ensure exactly one greeting and one signature.
- * Removes duplicate greetings and signatures, then injects single instances.
+ * Normalize cover letter text for BODY-ONLY output.
+ * Removes any greetings (e.g., "Dear …,") and any sign-offs (e.g., "Sincerely,").
+ * Collapses extra blank lines and trims whitespace.
  */
 
 export function normalizeCoverLetter(text: string): string {
@@ -273,24 +274,8 @@ export function normalizeCoverLetter(text: string): string {
   // Clean up the body
   body = body.trim().replace(/\n{3,}/g, '\n\n')
 
-  // Reconstruct with exactly one greeting and one signature
-  const parts: string[] = []
-
-  if (firstGreeting) {
-    parts.push(firstGreeting.trim())
-  } else {
-    parts.push('Dear Hiring Manager,')
-  }
-
-  parts.push(body)
-
-  if (firstSignature) {
-    parts.push(firstSignature)
-  } else {
-    parts.push('Sincerely,')
-  }
-
-  return parts.join('\n\n')
+  // Return body-only text
+  return body
 }
 
 /**
@@ -347,22 +332,9 @@ export function cleanCoverLetterText(text: string, applicantName: string): strin
   }
 
   // Normalize the text
-  let cleaned = normalizeCoverLetter(text)
+  const cleaned = normalizeCoverLetter(text)
 
-  // Ensure the signature includes the applicant's name
-  if (applicantName && !cleaned.includes(applicantName)) {
-    // Replace signature with one that includes the name
-    cleaned = cleaned.replace(
-      /\s*(Sincerely|Best regards|Regards|Respectfully|Thank you|Cordially|With appreciation),?\s*$/gim,
-      `\n\nSincerely,\n${applicantName}`
-    )
-    
-    // If no signature was found, add one
-    if (!cleaned.match(/\s*(Sincerely|Best regards|Regards|Respectfully|Thank you|Cordially|With appreciation),?\s*$/gim)) {
-      cleaned = cleaned.trim() + `\n\nSincerely,\n${applicantName}`
-    }
-  }
-
+  // Body-only requirement: do not add any greeting or signature here
   return cleaned
 }
 

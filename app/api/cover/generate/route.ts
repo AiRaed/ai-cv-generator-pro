@@ -48,21 +48,13 @@ export async function POST(req: Request) {
     // Check if API key is configured
     if (!process.env.OPENAI_API_KEY) {
       console.warn('[AI MOCK] no OPENAI_API_KEY')
-      if (isBodyOnlyMode) {
-        const mockBody = `With a strong background in ${keywords}, I am confident that I would be a valuable addition to your team. My experience has equipped me with the skills necessary to excel in this role. I am excited about the opportunity to contribute to your organization.`
-        return NextResponse.json({ ok: true, body: mockBody, letter: mockBody })
+      {
+        // Simple mock that respects body-only + brevity; capped at ~180 words
+        const mock = `With a strong background in ${keywords}, I bring a track record of delivering measurable results in ${role || 'the role'}${company ? ` at ${company}` : ''}. I have led initiatives that improved quality, efficiency and stakeholder outcomes, working cross‑functionally and communicating clearly with technical and non‑technical teams.
+
+I am motivated by ownership and high standards, and I adapt quickly to new domains. I am confident I can add value from day one by focusing on priorities, simplifying complex problems and following through.`
+        return NextResponse.json({ ok: true, body: mock.trim(), letter: mock.trim() })
       }
-      const mockLetter = `Dear ${recipientName || 'Hiring Manager'},
-
-I am writing to express my interest in the ${role || 'position'}${company ? ` at ${company}` : ''}.
-
-With a strong background in ${keywords}, I am confident that I would be a valuable addition to your team. My experience has equipped me with the skills necessary to excel in this role.
-
-I am excited about the opportunity to contribute to your organization and would welcome the chance to discuss how my qualifications align with your needs.
-
-Sincerely,
-${applicantName || 'Your Name'}`
-      return NextResponse.json({ ok: true, letter: mockLetter })
     }
 
     const modeGuide: Record<string, string> = {
@@ -81,24 +73,25 @@ ${applicantName || 'Your Name'}`
       const keywordsList = keywords.split(',').map(k => k.trim()).join(', ')
       const candidateHighlights = topSkills || experienceSnippet || keywordsList
 
-      const systemPrompt = `You are a professional cover-letter writer. Produce body-only text (no greeting or sign-off). Write in clear, confident, professional English with a focus on clarity, professionalism, and relevance (no fluff). Maximum 180 words total. Be concise and avoid unnecessary repetition.
-Prioritize specifics over buzzwords: convert duties into impact + metrics (e.g., "reduced load time by 28%"). If the user/job data lacks numbers, infer reasonable qualitative impact without inventing unverifiable facts.
-Never include headings, placeholders, brackets, or explanations. No "Dear…", "Sincerely," names, or contact details. Plain paragraphs only.`
+      const systemPrompt = `You are a professional cover-letter writer. Output body-only text in UK English: no greeting, no sign-off, no name. Use 2–3 short paragraphs, natural and confident. Strictly maximum 180 words. Focus on achievements and role fit; avoid repetition or filler.
+Prioritise specifics over buzzwords (e.g., "reduced load time by 28%"). If data lacks numbers, infer subtle, plausible qualitative impact without inventing unverifiable facts. No headings, placeholders, brackets, bullet points, or explanations.`
 
-      const userPrompt = `Write a cover-letter body only tailored to the role below.
+      const userPrompt = `Write only the cover-letter body tailored to the role below.
 
-Maximum 180 words total, 2–3 concise paragraphs. Be professional, clear, and avoid repetition.
+Rules:
+- UK English
+- 2–3 short paragraphs
+- ≤ 180 words total
+- No greeting, sign-off, names, headings, bullets, or placeholders
+- Natural, confident tone; focus on achievements and fit; avoid repetition
 
-Focus on clarity, professionalism, and relevance. Map my strengths to the employer's needs; highlight impact and results; add 1–2 light, plausible metrics if absent.
-
-No greeting/sign-off/headings/placeholders; plain text only.
 Role & keywords: ${roleTitle}${company ? ` at ${company}` : ''} (${keywordsList})
 My relevant experience (bullets or sentences):
 
 ${candidateHighlights}`
 
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -109,34 +102,45 @@ ${candidateHighlights}`
             content: userPrompt,
           },
         ],
-        temperature: 0.7,
-        max_tokens: 250,
+        temperature: 0.6,
+        max_tokens: 260,
       })
 
-      const body = completion.choices[0]?.message?.content || ''
+      let body = (completion.choices[0]?.message?.content || '').trim()
+      // Enforce body-only and word limit defensively
+      body = body.replace(/^Dear\s+[^,]+,?\s*\n?/gim, '')
+      body = body.replace(/\s*(Sincerely|Best regards|Regards|Respectfully|Thank you|Cordially|With appreciation),?\s*$/gim, '')
+      const words = body.split(/\s+/).filter(Boolean)
+      if (words.length > 180) {
+        body = words.slice(0, 180).join(' ')
+      }
+      // Normalise to 2–3 paragraphs max
+      const paras = body.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
+      if (paras.length > 3) {
+        body = paras.slice(0, 3).join('\n\n')
+      }
       return NextResponse.json({ ok: true, body: body.trim(), letter: body.trim() })
     }
 
-    const systemPrompt = `You are an expert cover letter writer. Write a professional cover letter in ${mode.toLowerCase()} style with ${modeGuide[mode]}. Follow these strict rules:
-1. Begin with exactly ONE greeting: "Dear ${recipientName || 'Hiring Manager'},"
-2. Write 3-4 paragraphs addressing the role, company, and how the candidate's expertise in ${keywords} makes them an ideal fit
-3. Use a ${modeGuide[mode]} tone
-4. Mention the company by name if provided
-5. End with exactly ONE signature: "Sincerely,"
-6. Followed by the applicant's name: "${applicantName}"
-7. Never include placeholders or duplicate greetings/signatures
-8. English only
-9. Keep it professional and compelling`
+    const systemPrompt = `You are an expert cover-letter writer. Output BODY-ONLY text in UK English: no greeting, no sign-off, no name. Use a ${modeGuide[mode]} tone (${mode.toLowerCase()} style). Follow strictly:
+1) 2–3 short paragraphs
+2) Maximum 180 words total
+3) Focus on achievements and fit for the role; avoid repetition and filler
+4) Mention the company if provided; no headings, bullets, or placeholders`
 
-    const userPrompt = `Write a ${mode.toLowerCase()} cover letter for ${applicantName} applying for ${role || 'the position'}${company ? ` at ${company}` : ''}${location}. 
+    const userPrompt = `Write only the body of a cover letter tailored to ${role || 'the position'}${company ? ` at ${company}` : ''}${location}.
 
 Key expertise areas to highlight: ${keywords}
 
+Constraints:
+- UK English; 2–3 short paragraphs; ≤ 180 words total
+- No greeting, sign-off, names, headings, bullets, or placeholders
+- Natural, confident tone; emphasise measurable impact and role fit
 ${company ? `\nCompany context: ${company}` : ''}
 ${role ? `\nPosition: ${role}` : ''}`
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4-turbo-preview',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
@@ -147,30 +151,31 @@ ${role ? `\nPosition: ${role}` : ''}`
           content: userPrompt,
         },
       ],
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: 0.6,
+      max_tokens: 300,
     })
 
-    const letter = completion.choices[0]?.message?.content || ''
+    let letter = (completion.choices[0]?.message?.content || '').trim()
 
-    // Clean up the letter
-    const cleanedLetter = letter
-      .replace(/^Dear\s+[^,]+,?\s*\n?/gm, `Dear ${recipientName || 'Hiring Manager'},\n\n`)
-      .replace(/\n{3,}/g, '\n\n') // Remove excessive line breaks
+    // Clean up excessive spacing and ensure body-only output
+    let cleanedBody = letter
+      .replace(/^Dear\s+[^,]+,?\s*\n?/gim, '')
+      .replace(/\s*(Sincerely|Best regards|Regards|Respectfully|Thank you|Cordially|With appreciation),?\s*$/gim, '')
+      .replace(/\n{3,}/g, '\n\n')
       .trim()
 
-    // Ensure signature
-    if (!cleanedLetter.match(/Sincerely,?\s*\n/)) {
-      const lines = cleanedLetter.split('\n')
-      // Add signature if not present
-      if (!lines[lines.length - 1]?.includes('Sincerely')) {
-        const withSignature = cleanedLetter + (cleanedLetter.endsWith('\n') ? '' : '\n') + '\nSincerely,\n' + applicantName
-        return NextResponse.json({ ok: true, letter: withSignature })
-      }
+    // Enforce 180-word cap and 2–3 paragraphs defensively
+    const w = cleanedBody.split(/\s+/).filter(Boolean)
+    if (w.length > 180) {
+      cleanedBody = w.slice(0, 180).join(' ')
+    }
+    const ps = cleanedBody.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
+    if (ps.length > 3) {
+      cleanedBody = ps.slice(0, 3).join('\n\n')
     }
 
-    const response = { ok: true, letter: cleanedLetter }
-    console.log('[Cover Generate] response length:', cleanedLetter.length)
+    const response = { ok: true, letter: cleanedBody }
+    console.log('[Cover Generate] response length:', cleanedBody.length)
 
     return NextResponse.json(response)
   } catch (error: any) {

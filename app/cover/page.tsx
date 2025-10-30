@@ -175,7 +175,10 @@ export default function CoverPage() {
       if (!res.ok || !data?.ok) {
         showToast('error', 'AI temporarily unavailable. Using a safe draft.')
         // fallback to mock if server ever returns non-ok - use local preview state
-        const cleanedText = cleanCoverLetterText(data?.letter || 'Dear Hiring Manager,\n\n(temporary draft)…\n\nSincerely,\n' + (applicantName || ''), applicantName)
+        const cleanedText = cleanCoverLetterText(
+          data?.letter || '(temporary draft)…',
+          applicantName
+        )
         setAiPreview(cleanedText)
         setIsImprovePreview(false)
         showToast('success', 'Preview generated - click Apply to update')
