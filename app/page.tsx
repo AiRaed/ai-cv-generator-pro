@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, FileText, CheckCircle, Rocket, CreditCard, LockOpen } from 'lucide-react'
+import { Sparkles, FileText, CheckCircle, Rocket, CreditCard, Unlock  } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/button'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -138,7 +138,7 @@ export default function Home() {
                   onClick={handleOpenBuilder}
                   className="border border-violet-400 text-violet-300 px-8 py-3 text-lg rounded-2xl hover:bg-violet-950/40 w-full md:w-auto"
                 >
-                  <LockOpen className="w-5 h-5 mr-2" />
+                  <Unlock className="w-5 h-5 mr-2" />
                   Open Builder
                 </Button>
               ) : (
