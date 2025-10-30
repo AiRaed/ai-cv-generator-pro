@@ -3,17 +3,9 @@
 import { ThemeProvider } from '@/components/theme-provider'
 import { ToastProvider } from '@/components/ui/toast'
 
-export default function ClientProviders({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      enableSystem={false}
-    >
+    <ThemeProvider>
       <ToastProvider>{children}</ToastProvider>
     </ThemeProvider>
   )
