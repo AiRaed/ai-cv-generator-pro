@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Sparkles } from "lucide-react"
 import Link from "next/link"
 import { useAiAccess } from "@/lib/use-ai-access"
-import { startCheckout } from "@/lib/checkout"
+import { startCheckout } from "@/lib/stripe"
 import { useState } from "react"
 import { ThemeToggle } from "@/components/theme-toggle"
 
