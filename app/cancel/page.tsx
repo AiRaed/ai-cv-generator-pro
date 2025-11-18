@@ -15,9 +15,12 @@ export default function CancelPage() {
   const handleTryAgain = async () => {
     setCheckoutLoading(true)
     try {
-      await startCheckout()
-      // Redirect happens in startCheckout, but in case it doesn't, set loading to false after a delay
-      setTimeout(() => setCheckoutLoading(false), 2000)
+      const success = await startCheckout()
+      // If checkout succeeded, redirect will happen in startCheckout
+      // If it failed (returned false), reset loading state
+      if (!success) {
+        setCheckoutLoading(false)
+      }
     } catch (error) {
       console.error('Checkout error:', error)
       setCheckoutLoading(false)

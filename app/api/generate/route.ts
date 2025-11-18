@@ -1,13 +1,51 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { normalizeSummaryParagraph, stripPlaceholders } from '@/lib/normalize'
+import { cookies, headers } from 'next/headers'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',
 })
 
+/**
+ * Check if AI can be used based on preview_end_at or ai_unlocked_until cookie
+ */
+async function canUseAI(req: Request): Promise<boolean> {
+  const cookieStore = await cookies()
+  const headerStore = await headers()
+  const now = Date.now()
+  
+  // Check for full AI access (cookie)
+  const aiUnlockedUntil = cookieStore.get('ai_unlocked_until')?.value
+  if (aiUnlockedUntil) {
+    const timestamp = Number(aiUnlockedUntil)
+    if (!isNaN(timestamp) && now < timestamp) {
+      return true // Has full access
+    }
+  }
+
+  // Check for active preview window - check both cookie and header
+  const previewEndCookie = cookieStore.get('preview_end_at')?.value
+  const previewEndHeader = headerStore.get('x-preview-end')
+  const previewEnd = previewEndCookie || previewEndHeader
+  
+  if (previewEnd) {
+    const endAt = Number(previewEnd)
+    if (!isNaN(endAt) && now < endAt) {
+      return true // Within preview window
+    }
+  }
+
+  return false
+}
+
 export async function POST(req: Request) {
   try {
+    // Check authorization
+    if (!(await canUseAI(req))) {
+      return NextResponse.json({ ok: false, error: 'AI access required' }, { status: 403 })
+    }
+
     const body = await req.json()
     const { keywords, personal, summaryMd, experience, education, skills, layout, lang = 'en' } = body
 

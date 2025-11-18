@@ -223,9 +223,12 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Preview-only: Single compact row layout with dot separators */
 .a4-paper .cv-header-container {
-  align-items: baseline;
+  align-items: center;
   flex-direction: column;
   justify-content: flex-start;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
 }
 
 .a4-paper .cv-header-container .cv-name {
@@ -235,11 +238,10 @@ h1, h2, h3, h4, h5, h6 {
 
 .a4-paper .cv-header-container .cv-contact-info {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
   justify-content: center; /* centered under name */
-  gap: 0.25rem 0.4rem; /* tighter horizontal and vertical gaps */
+  gap: 0.125rem; /* tight spacing between lines */
   font-size: 0.65rem; /* ≈10.5px - smaller font */
   line-height: 1.25; /* tighter line height */
   font-weight: 400;
@@ -274,10 +276,19 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .a4-paper .cv-header-container .cv-contact-info .cv-contact-separator {
-  margin: 0 0.25rem; /* tighter spacing */
+  margin: 0;
   font-size: 0.65rem; /* ≈10.5px - smaller font */
   color: #4b5563;
   white-space: nowrap;
+}
+
+.a4-paper .cv-header-container .cv-contact-info .cv-contact-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+  width: 100%;
 }
 
 /* Alternative inline layout for single/double line when space is limited */

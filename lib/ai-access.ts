@@ -2,12 +2,11 @@
 
 /**
  * Helper functions and hooks for 24h AI access management
- * Uses localStorage with ai_access_until (ISO timestamp) and ai_access_source
+ * Uses localStorage with ai_unlock_until (replaces aiPaid/aiUnlockUntil)
+ * This is a legacy wrapper - use utils/access.ts for new code
  */
 
-const AI_ACCESS_UNTIL_KEY = 'ai_access_until'
-const AI_ACCESS_SOURCE_KEY = 'ai_access_source'
-const AI_TRIAL_USED_KEY = 'ai_trial_used'
+const AI_UNLOCK_UNTIL_KEY = 'ai_unlock_until'
 
 export interface AiAccessInfo {
   valid: boolean
@@ -28,8 +27,8 @@ export function getAiAccess(): AiAccessInfo {
   }
 
   try {
-    // First check if user has active paid access
-    const untilStr = localStorage.getItem(AI_ACCESS_UNTIL_KEY)
+    // Check if user has active paid access
+    const untilStr = localStorage.getItem(AI_UNLOCK_UNTIL_KEY)
     if (untilStr) {
       const expiresAt = Number.parseInt(untilStr, 10)
       if (!Number.isNaN(expiresAt)) {
@@ -38,33 +37,29 @@ export function getAiAccess(): AiAccessInfo {
 
         // Check if expired (account for clock skew: if less than 1 minute left, consider expired)
         if (remainingMs >= 60 * 1000) {
-          const source = localStorage.getItem(AI_ACCESS_SOURCE_KEY) || undefined
           return {
             valid: true,
             expiresAt,
             remainingMs,
-            source,
+            source: 'stripe',
             trialAvailable: false,
             trialUsed: undefined,
           }
         } else {
           // Expired, clean up
-          localStorage.removeItem(AI_ACCESS_UNTIL_KEY)
-          localStorage.removeItem(AI_ACCESS_SOURCE_KEY)
+          localStorage.removeItem(AI_UNLOCK_UNTIL_KEY)
         }
       } else {
         // Invalid format, clean up
-        localStorage.removeItem(AI_ACCESS_UNTIL_KEY)
-        localStorage.removeItem(AI_ACCESS_SOURCE_KEY)
+        localStorage.removeItem(AI_UNLOCK_UNTIL_KEY)
       }
     }
 
-    // No active paid access - check trial status
-    const trialUsed = localStorage.getItem(AI_TRIAL_USED_KEY) === 'true'
+    // No active paid access
     return {
       valid: false,
-      trialAvailable: !trialUsed,
-      trialUsed: trialUsed,
+      trialAvailable: false,
+      trialUsed: false,
     }
   } catch (error) {
     console.error('[AI Access] Error reading from localStorage:', error)
@@ -83,12 +78,18 @@ export function setAiAccess(source: string = 'stripe'): void {
     const now = Date.now()
     const expiresAt = now + 24 * 60 * 60 * 1000 // 24 hours
 
-    localStorage.setItem(AI_ACCESS_UNTIL_KEY, expiresAt.toString())
-    localStorage.setItem(AI_ACCESS_SOURCE_KEY, source)
+    localStorage.setItem(AI_UNLOCK_UNTIL_KEY, expiresAt.toString())
+    
+    // Clear preview_end_at (and legacy preview keys for cleanup)
+    localStorage.removeItem('preview_end_at')
+    localStorage.removeItem('aiPreviewStartAt')
 
     // Trigger custom event for same-tab updates (storage event only fires cross-tab)
     window.dispatchEvent(new CustomEvent('localStorageChange', {
-      detail: { key: AI_ACCESS_UNTIL_KEY, newValue: expiresAt.toString() }
+      detail: { key: AI_UNLOCK_UNTIL_KEY, newValue: expiresAt.toString() }
+    }))
+    window.dispatchEvent(new CustomEvent('localStorageChange', {
+      detail: { key: 'preview_end_at', newValue: null }
     }))
   } catch (error) {
     console.error('[AI Access] Error writing to localStorage:', error)
@@ -97,46 +98,33 @@ export function setAiAccess(source: string = 'stripe'): void {
 }
 
 /**
- * Clear AI access (but keep trial status)
+ * Clear AI access (but keep preview state if active)
  */
 export function clearAiAccess(): void {
   if (typeof window === 'undefined') return
 
-  localStorage.removeItem(AI_ACCESS_UNTIL_KEY)
-  localStorage.removeItem(AI_ACCESS_SOURCE_KEY)
+  localStorage.removeItem(AI_UNLOCK_UNTIL_KEY)
 
   // Trigger custom event for same-tab updates
   window.dispatchEvent(new CustomEvent('localStorageChange', {
-    detail: { key: AI_ACCESS_UNTIL_KEY, newValue: null }
+    detail: { key: AI_UNLOCK_UNTIL_KEY, newValue: null }
   }))
 }
 
 /**
  * Check if trial is available (not used yet)
+ * Always returns false since we don't use trials anymore - only 90s preview
  */
 export function isTrialAvailable(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return localStorage.getItem(AI_TRIAL_USED_KEY) !== 'true'
-  } catch {
-    return false
-  }
+  return false
 }
 
 /**
  * Mark trial as used
+ * No-op since we don't use trials anymore
  */
 export function markTrialUsed(): void {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(AI_TRIAL_USED_KEY, 'true')
-    // Trigger custom event for same-tab updates
-    window.dispatchEvent(new CustomEvent('localStorageChange', {
-      detail: { key: AI_TRIAL_USED_KEY, newValue: 'true' }
-    }))
-  } catch (error) {
-    console.error('[AI Access] Error marking trial as used:', error)
-  }
+  // No-op
 }
 
 /**

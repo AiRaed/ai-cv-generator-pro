@@ -4,18 +4,25 @@ import { Button } from "@/components/ui/button"
 import { Sparkles } from "lucide-react"
 import Link from "next/link"
 import { useAiAccess } from "@/lib/use-ai-access"
-import { startCheckout } from "@/lib/stripe"
+import { startCheckout } from "@/lib/checkout"
+import { LAUNCH_PRICE_GBP } from "@/lib/funnelConfig"
 import { useState } from "react"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 export function Header() {
   const { valid, remainingFormatted } = useAiAccess()
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const priceLabel = `£${LAUNCH_PRICE_GBP.toFixed(2)}`
 
   const handleCheckout = async () => {
     setCheckoutLoading(true)
     try {
-      await startCheckout()
+      const success = await startCheckout()
+      // If checkout succeeded, redirect will happen in startCheckout
+      // If it failed (returned false), reset loading state
+      if (!success) {
+        setCheckoutLoading(false)
+      }
     } catch (error) {
       console.error('Checkout error:', error)
       setCheckoutLoading(false)
@@ -53,7 +60,7 @@ export function Header() {
   ) : (
     <>
       <Sparkles className="w-4 h-4 mr-2" />
-      Unlock AI — £1.99
+      Unlock AI — {priceLabel}
     </>
   )}
 </Button>

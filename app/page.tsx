@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { Button } from '@/components/button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { startCheckout } from '@/lib/checkout'
+import { LAUNCH_PRICE_GBP } from '@/lib/funnelConfig'
 import { usePaywall } from '@/lib/usePaywall'
 import { useRouter } from 'next/navigation'
 
@@ -14,16 +15,20 @@ export default function Home() {
   const router = useRouter()
   const { isUnlocked } = usePaywall()
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const priceLabel = `£${LAUNCH_PRICE_GBP.toFixed(2)}`
 
   const handleCheckout = async () => {
     setCheckoutLoading(true)
     try {
-      await startCheckout()
+      const success = await startCheckout()
+      // If checkout succeeded, redirect will happen in startCheckout
+      // If it failed (returned false), reset loading state
+      if (!success) {
+        setCheckoutLoading(false)
+      }
     } catch (error) {
       console.error('Checkout error:', error)
-    } finally {
-      // Don't set loading to false if redirecting
-      // The redirect will happen in startCheckout
+      setCheckoutLoading(false)
     }
   }
 
@@ -147,7 +152,7 @@ export default function Home() {
                   onClick={handleCheckout}
                   className="border border-violet-400 text-violet-300 px-8 py-3 text-lg rounded-2xl hover:bg-violet-950/40 w-full md:w-auto"
                 >
-                  Pay with Stripe — £1.99
+                  Pay with Stripe — {priceLabel}
                 </Button>
               )}
             </motion.div>

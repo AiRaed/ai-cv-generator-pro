@@ -7,6 +7,7 @@ import { CheckCircle2, Sparkles, Clock } from 'lucide-react'
 import { Button } from '@/components/button'
 import { useAiAccess } from '@/lib/use-ai-access'
 import { setAiAccess } from '@/lib/ai-access'
+import { trackEvent } from '@/lib/analytics'
 import Link from 'next/link'
 
 export default function SuccessPage() {
@@ -21,6 +22,8 @@ export default function SuccessPage() {
     
     try {
       setAccess('stripe')
+      trackEvent('checkout_success')
+      trackEvent('unlock_activated_24h')
       setAccessSet(true)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'

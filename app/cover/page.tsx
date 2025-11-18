@@ -15,12 +15,19 @@ import { exportToDocx } from '@/lib/docx'
 import { normalizeCoverLetter, cleanCoverLetterText, normalizeSummaryParagraph, stripPlaceholders } from '@/lib/normalize'
 import { startCheckout } from '@/lib/checkout'
 import { useAiAccess } from '@/lib/use-ai-access'
+import { canUseAI, getPreviewEndAt, startPreview, getAiPreviewStartAt, isPreviewEnded, getPreviewRemainingSeconds } from '@/utils/access'
 import { AiButtonOverlay } from '@/components/AiButtonOverlay'
 import { PreviewBlurOverlay } from '@/components/PreviewBlurOverlay'
 import { InputBlurOverlay } from '@/components/InputBlurOverlay'
 import { AIPreviewText } from '@/components/AIPreviewText'
+import { PreviewPaywallModal } from '@/components/PreviewPaywallModal'
+import { PreviewTopBar } from '@/components/PreviewTopBar'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { LAUNCH_PRICE_GBP, PREVIEW_SECONDS } from '@/lib/funnelConfig'
+import { trackEvent } from '@/lib/analytics'
 import Link from 'next/link'
+
+type PreviewState = 'preview_active' | 'preview_ended' | 'unlocked_24h'
 
 type Tab = 'recipient' | 'letter' | 'layout'
 
@@ -42,6 +49,7 @@ export default function CoverPage() {
   const [isImprovePreview, setIsImprovePreview] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
+  const priceLabel = `£${LAUNCH_PRICE_GBP.toFixed(2)}`
 
   // Prevent hydration mismatch by only rendering client-specific content after mount
   useEffect(() => {
@@ -49,63 +57,22 @@ export default function CoverPage() {
   }, [])
 
   // AI Access state
-  const { valid: hasAiAccess, remainingFormatted, trialAvailable, trialUsed, markTrialUsed } = useAiAccess()
+  const { valid: hasAiAccess, remainingFormatted } = useAiAccess()
   const [prevValid, setPrevValid] = useState<boolean | null>(null)
   const [showPreviewBlur, setShowPreviewBlur] = useState(false)
   const [showInputBlur, setShowInputBlur] = useState(false)
   const [lockedInputsRef, setLockedInputsRef] = useState<Set<string>>(new Set())
+  
+  // Preview state tracking
+  const [previewState, setPreviewState] = useState<PreviewState | 'not_started'>('not_started')
+  const [previewInitialized, setPreviewInitialized] = useState(false)
+  const [previewRemaining, setPreviewRemaining] = useState<number | null>(null)
+  const [previewEnded, setPreviewEnded] = useState(false)
+  const [paywallVariant, setPaywallVariant] = useState<'preview-ended' | 'access-expired' | null>(null)
+  const previewActive = !hasAiAccess && previewState === 'preview_active'
+  const showPaywall = !hasAiAccess && previewState === 'preview_ended'
 
   // Prevent hydration mismatch - mounted state is set in useEffect after client hydration
-
-  // Handle access expiration with toast
-  useEffect(() => {
-    if (prevValid === null) {
-      // Initial mount - set previous state
-      setPrevValid(hasAiAccess)
-      return
-    }
-    
-    // Check if access just expired
-    if (prevValid === true && hasAiAccess === false) {
-      showToast('error', 'Your AI access expired. You can unlock again anytime.')
-    }
-    
-    // If user gains access, clear the blur
-    if (!prevValid && hasAiAccess) {
-      setShowPreviewBlur(false)
-      setShowInputBlur(false)
-      setLockedInputsRef(new Set())
-    }
-    
-    setPrevValid(hasAiAccess)
-    
-    // If trial is used and no access, immediately show lock on any existing AI content
-    if (!hasAiAccess && trialUsed && prevValid !== null) {
-      if (aiPreview || letterBody.trim()) {
-        setShowPreviewBlur(true)
-        setShowInputBlur(true)
-        // Only lock Letter Body input if it actually contains AI-generated text
-        if (letterBody.trim()) {
-          setLockedInputsRef(new Set(['letter']))
-        } else {
-          setLockedInputsRef(new Set())
-        }
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAiAccess])
-
-  // Handle checkout
-  const handleCheckout = async () => {
-    setCheckoutLoading(true)
-    try {
-      await startCheckout()
-    } catch (error) {
-      console.error('Checkout error:', error)
-      setCheckoutLoading(false)
-    }
-    // Don't set loading to false if redirecting - redirect happens in startCheckout
-  }
 
   const {
     recipientName,
@@ -125,6 +92,172 @@ export default function CoverPage() {
     setAtsMode,
   } = useCoverStore()
 
+  // Handle access expiration with toast
+  useEffect(() => {
+    if (prevValid === null) {
+      // Initial mount - set previous state
+      setPrevValid(hasAiAccess)
+      return
+    }
+    
+    // Check if access just expired
+    if (prevValid === true && hasAiAccess === false) {
+      showToast('error', 'Your AI access expired. You can unlock again anytime.')
+    }
+    
+    // If user gains access, clear the blur and reset preview funnel
+    if (!prevValid && hasAiAccess) {
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      setLockedInputsRef(new Set())
+      setPreviewRemaining(null)
+      setPreviewEnded(false)
+      setPreviewInitialized(false)
+      setPreviewState('unlocked_24h')
+    }
+    
+    setPrevValid(hasAiAccess)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAiAccess])
+
+  // Initialize preview state on mount from localStorage
+  useEffect(() => {
+    if (!mounted) return
+    if (hasAiAccess) {
+      setPreviewState('unlocked_24h')
+      setPreviewRemaining(null)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      return
+    }
+
+    const previewStartAt = getAiPreviewStartAt()
+    if (!previewStartAt) {
+      // Preview hasn't started yet
+      setPreviewState('not_started')
+      setPreviewRemaining(null)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      return
+    }
+
+    // Check if preview has ended
+    const ended = isPreviewEnded()
+    if (ended) {
+      setPreviewState('preview_ended')
+      setPreviewRemaining(0)
+      setPreviewEnded(true)
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      trackEvent('preview_ended')
+    } else {
+      // Preview is still active
+      const remaining = getPreviewRemainingSeconds()
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+    }
+    setPreviewInitialized(true)
+  }, [mounted, hasAiAccess])
+
+  // Listen to localStorage changes for preview state
+  useEffect(() => {
+    if (!mounted) return
+
+    const handleStorageChange = () => {
+      if (hasAiAccess) {
+        setPreviewState('unlocked_24h')
+        setPreviewRemaining(null)
+        setPreviewEnded(false)
+        setShowPreviewBlur(false)
+        setShowInputBlur(false)
+        return
+      }
+
+      const previewStartAt = getAiPreviewStartAt()
+      if (!previewStartAt) {
+        setPreviewState('not_started')
+        setPreviewRemaining(null)
+        setPreviewEnded(false)
+        setShowPreviewBlur(false)
+        setShowInputBlur(false)
+        return
+      }
+
+      const ended = isPreviewEnded()
+      if (ended) {
+        setPreviewState('preview_ended')
+        setPreviewRemaining(0)
+        setPreviewEnded(true)
+        setPaywallVariant('preview-ended')
+        setShowPreviewBlur(true)
+        setShowInputBlur(false)
+      } else {
+        const remaining = getPreviewRemainingSeconds()
+        setPreviewState('preview_active')
+        setPreviewRemaining(remaining)
+        setPreviewEnded(false)
+        setShowPreviewBlur(false)
+        setShowInputBlur(false)
+      }
+    }
+
+    window.addEventListener('localStorageChange', handleStorageChange as EventListener)
+    return () => {
+      window.removeEventListener('localStorageChange', handleStorageChange as EventListener)
+    }
+  }, [mounted, hasAiAccess])
+
+  // Tick preview countdown
+  useEffect(() => {
+    if (!mounted) return
+    if (hasAiAccess) return
+    if (previewState !== 'preview_active') return
+    if (previewRemaining === null || previewRemaining <= 0) return
+
+    const interval = setInterval(() => {
+      const remaining = getPreviewRemainingSeconds()
+      
+      if (remaining <= 0) {
+        clearInterval(interval)
+        setPreviewEnded(true)
+        setPreviewState('preview_ended')
+        setPreviewRemaining(0)
+        setPaywallVariant('preview-ended')
+        setShowPreviewBlur(true)
+        setShowInputBlur(false)
+        trackEvent('preview_ended')
+        return
+      }
+
+      setPreviewRemaining(remaining)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [mounted, hasAiAccess, previewState, previewRemaining])
+
+  // Handle checkout
+  const handleCheckout = async () => {
+    setCheckoutLoading(true)
+    try {
+      const success = await startCheckout()
+      // If checkout succeeded, redirect will happen in startCheckout
+      // If it failed (returned false), reset loading state
+      if (!success) {
+        setCheckoutLoading(false)
+      }
+    } catch (error) {
+      console.error('Checkout error:', error)
+      setCheckoutLoading(false)
+    }
+  }
+
   const { personal } = useCVStore()
 
   // Debug logging
@@ -138,16 +271,29 @@ export default function CoverPage() {
   }
 
   const handleGenerate = async () => {
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     setLoading(prev => ({ ...prev, gen: true }))
@@ -158,9 +304,15 @@ export default function CoverPage() {
         setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
       )
 
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const fetchPromise = fetch('/api/cover/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           applicantName: applicantName, // keep user's name field unchanged
           recipientName, company, cityState, role, mode: generateMode, keywords
@@ -188,33 +340,6 @@ export default function CoverPage() {
         setAiPreview(cleanedText)
         setIsImprovePreview(false)
         showToast('success', 'Preview generated - click Apply to update')
-        
-        // If trial usage, show blur after 5 seconds (first trial) or immediately (trial already used)
-        if (!hasAiAccess) {
-          if (trialUsed) {
-            // Trial already used - lock immediately
-            setShowPreviewBlur(true)
-            if (letterBody.trim()) {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set(['letter']))
-            } else {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set())
-            }
-          } else if (isTrialUsage) {
-            // First trial - show blur after 5 seconds
-            setTimeout(() => {
-              setShowPreviewBlur(true)
-              if (letterBody.trim()) {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set(['letter']))
-              } else {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set())
-              }
-            }, 5000)
-          }
-        }
       }
     } catch (error: any) {
       console.error('[AI] Generate error:', error)
@@ -230,16 +355,29 @@ export default function CoverPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     console.log('[COVER] improve', { chars: letterBody.length })
@@ -251,9 +389,15 @@ export default function CoverPage() {
         setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
       )
 
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const fetchPromise = fetch('/api/cover/rewrite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           letter: letterBody,
           mode: 'Improve',
@@ -286,33 +430,6 @@ export default function CoverPage() {
           setAiPreview(normalized)
           setIsImprovePreview(true)
           showToast('success', 'Preview generated - click Apply to update')
-          
-          // If trial usage, show blur after 5 seconds (first trial) or immediately (trial already used)
-          if (!hasAiAccess) {
-            if (trialUsed) {
-              // Trial already used - lock immediately
-              setShowPreviewBlur(true)
-              if (letterBody.trim()) {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set(['letter']))
-              } else {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set())
-              }
-            } else if (isTrialUsage) {
-              // First trial - show blur after 5 seconds
-              setTimeout(() => {
-                setShowPreviewBlur(true)
-                if (letterBody.trim()) {
-                  setShowInputBlur(true)
-                  setLockedInputsRef(new Set(['letter']))
-                } else {
-                  setShowInputBlur(true)
-                  setLockedInputsRef(new Set())
-                }
-              }, 5000)
-            }
-          }
         } else {
           showToast('error', 'Failed to generate improved version')
         }
@@ -326,21 +443,34 @@ export default function CoverPage() {
   }
 
   const handleRewrite = async () => {
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
+    }
+
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
+    }
+
     if (!letterBody.trim()) {
       showToast('error', 'Please generate or write content first')
       return
-    }
-
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
-    }
-
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
     }
 
     console.log('[COVER] rewrite', { mode: rewriteMode, chars: letterBody.length })
@@ -352,9 +482,15 @@ export default function CoverPage() {
         setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
       )
 
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const fetchPromise = fetch('/api/cover/rewrite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           letter: letterBody,
           mode: rewriteMode,
@@ -379,33 +515,6 @@ export default function CoverPage() {
         setAiPreview(cleanedText)
         setIsImprovePreview(false)
         showToast('success', 'Preview generated - click Apply to update')
-        
-        // If trial usage, show blur after 5 seconds (first trial) or immediately (trial already used)
-        if (!hasAiAccess) {
-          if (trialUsed) {
-            // Trial already used - lock immediately
-            setShowPreviewBlur(true)
-            if (letterBody.trim()) {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set(['letter']))
-            } else {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set())
-            }
-          } else if (isTrialUsage) {
-            // First trial - show blur after 5 seconds
-            setTimeout(() => {
-              setShowPreviewBlur(true)
-              if (letterBody.trim()) {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set(['letter']))
-              } else {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set())
-              }
-            }, 5000)
-          }
-        }
       } else if (data.letter) {
         // Fallback for backward compatibility - clean the text (body only, no greetings/closings) and store in local preview state
         // Use stripPlaceholders instead of cleanCoverLetterText since rewrite returns body-only text
@@ -414,32 +523,6 @@ export default function CoverPage() {
         setIsImprovePreview(false)
         showToast('success', 'Preview generated - click Apply to update')
         
-        // If trial usage, show blur after 5 seconds (first trial) or immediately (trial already used)
-        if (!hasAiAccess) {
-          if (trialUsed) {
-            // Trial already used - lock immediately
-            setShowPreviewBlur(true)
-            if (letterBody.trim()) {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set(['letter']))
-            } else {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set())
-            }
-          } else if (isTrialUsage) {
-            // First trial - show blur after 5 seconds
-            setTimeout(() => {
-              setShowPreviewBlur(true)
-              if (letterBody.trim()) {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set(['letter']))
-              } else {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set())
-              }
-            }, 5000)
-          }
-        }
       }
     } catch (error: any) {
       console.error('[AI] error rewriting cover letter:', error)
@@ -455,16 +538,29 @@ export default function CoverPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     console.log('[COVER] compare', { keywords, mode: generateMode })
@@ -476,9 +572,15 @@ export default function CoverPage() {
         setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
       )
 
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const fetchPromise = fetch('/api/cover/compare', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           text: letterBody, // Pass current body text for rewriting/improving
           keywords,
@@ -512,34 +614,6 @@ export default function CoverPage() {
         setVariants(normalizedVariants)
         setShowCompare(true)
         showToast('success', 'Generated variants')
-        
-        // If trial usage, show blur after 5 seconds (first trial) or immediately (trial already used)
-        if (!hasAiAccess) {
-          if (trialUsed) {
-            // Trial already used - lock immediately (ComparePanel is modal, so we'll lock when variant is selected)
-            // But we still lock the preview panel in case user closes compare panel
-            setShowPreviewBlur(true)
-            if (letterBody.trim()) {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set(['letter']))
-            } else {
-              setShowInputBlur(true)
-              setLockedInputsRef(new Set())
-            }
-          } else if (isTrialUsage) {
-            // First trial - show blur after 5 seconds
-            setTimeout(() => {
-              setShowPreviewBlur(true)
-              if (letterBody.trim()) {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set(['letter']))
-              } else {
-                setShowInputBlur(true)
-                setLockedInputsRef(new Set())
-              }
-            }, 5000)
-          }
-        }
       }
     } catch (error: any) {
       console.error('[AI] error comparing cover letters:', error)
@@ -626,7 +700,7 @@ export default function CoverPage() {
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">left</span>
               </div>
-            ) : mounted ? (
+            ) : mounted && showPaywall ? (
               <>
                 <Button
                   variant="primary"
@@ -634,10 +708,10 @@ export default function CoverPage() {
                   isLoading={checkoutLoading}
                   onClick={handleCheckout}
                   className="hidden md:inline-flex"
-                  aria-label="Unlock AI for 24h — £1.99"
+                  aria-label={`Unlock AI for 24h — ${priceLabel}`}
                 >
                   <CreditCard className="w-4 h-4 mr-2" />
-                  Pay with Stripe — £1.99
+                  Pay with Stripe — {priceLabel}
                 </Button>
                 <Button
                   variant="primary"
@@ -645,10 +719,10 @@ export default function CoverPage() {
                   isLoading={checkoutLoading}
                   onClick={handleCheckout}
                   className="md:hidden"
-                  aria-label="Unlock AI for 24h — £1.99"
+                  aria-label={`Unlock AI for 24h — ${priceLabel}`}
                 >
                   <CreditCard className="w-4 h-4 mr-1" />
-                  Pay — £1.99
+                  Pay — {priceLabel}
                 </Button>
               </>
             ) : (
@@ -669,6 +743,14 @@ export default function CoverPage() {
           </div>
         </div>
       </header>
+
+      {/* Preview countdown bar */}
+      {!hasAiAccess && previewState === 'preview_active' && previewRemaining !== null && (
+        <PreviewTopBar
+          remainingSeconds={previewRemaining}
+          onPayClick={handleCheckout}
+        />
+      )}
 
       <div className="container mx-auto px-4 py-8">
         <div className="mb-6 text-center">
@@ -782,16 +864,19 @@ export default function CoverPage() {
                       />
                       {/* Only show overlay on Letter Body if it contains AI text (from Apply to Form) */}
                       {showInputBlur && lockedInputsRef.has('letter') && !hasAiAccess && letterBody.trim() && (
-                        <InputBlurOverlay onUnlock={() => {
-                          setShowInputBlur(false)
-                          setLockedInputsRef(new Set())
-                        }} />
+                        <InputBlurOverlay 
+                          onUnlock={() => {
+                            setShowInputBlur(false)
+                            setLockedInputsRef(new Set())
+                          }}
+                          showButton={previewState === 'preview_ended'}
+                        />
                       )}
                     </div>
                     {/* AI Improve Button - only show when letterBody has content */}
                     {letterBody.trim() && (
                       <div>
-                        <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                        <AiButtonOverlay disabled={!canUseAI()}>
                           <Button
                             onClick={handleImprove}
                             disabled={loading.improve || !letterBody.trim()}
@@ -852,11 +937,6 @@ export default function CoverPage() {
                                   setAiPreview('');
                                   setIsImprovePreview(false);
                                   showToast('success', 'Applied to form');
-                                  // After applying, lock the Letter Body if trial is used and no access
-                                  if (!hasAiAccess && trialUsed) {
-                                    setShowInputBlur(true);
-                                    setLockedInputsRef(new Set(['letter']));
-                                  }
                                 }} 
                                 disabled={!aiPreview.trim()}
                               >
@@ -877,11 +957,14 @@ export default function CoverPage() {
                           ) : null}
                         </div>
                         {(showPreviewBlur || showInputBlur) && !hasAiAccess && (
-                          <InputBlurOverlay onUnlock={() => {
-                            setShowPreviewBlur(false)
-                            setShowInputBlur(false)
-                            setLockedInputsRef(new Set())
-                          }} />
+                          <InputBlurOverlay 
+                            onUnlock={() => {
+                              setShowPreviewBlur(false)
+                              setShowInputBlur(false)
+                              setLockedInputsRef(new Set())
+                            }}
+                            showButton={previewState === 'preview_ended'}
+                          />
                         )}
                       </div>
                     )}
@@ -894,24 +977,6 @@ export default function CoverPage() {
                             <Sparkles className="w-5 h-5 text-violet-accent" />
                             AI Engine
                           </h4>
-                          {mounted && !hasAiAccess && (showPreviewBlur || showInputBlur) && (
-                            <div className="text-right">
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={handleCheckout}
-                                disabled={checkoutLoading}
-                                isLoading={checkoutLoading}
-                                aria-label="Unlock AI for 24h — £1.99"
-                              >
-                                <CreditCard className="w-4 h-4 mr-2" />
-                                Pay with Stripe — £1.99
-                              </Button>
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                Secure checkout by Stripe
-                              </p>
-                            </div>
-                          )}
                         </div>
                         
                         <div>
@@ -936,7 +1001,7 @@ export default function CoverPage() {
                               <option value="Technical">Technical</option>
                             </select>
                           </div>
-                          <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                          <AiButtonOverlay disabled={!canUseAI()}>
                             <Button
                               onClick={handleGenerate}
                               disabled={loading.gen || !keywords}
@@ -964,7 +1029,7 @@ export default function CoverPage() {
                             <option value="Creative Portfolio">Creative Portfolio</option>
                             <option value="Academic Formal">Academic Formal</option>
                           </select>
-                          <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                          <AiButtonOverlay disabled={!canUseAI()}>
                             <Button
                               onClick={handleRewrite}
                               disabled={loading.rewrite || !letterBody}
@@ -978,7 +1043,7 @@ export default function CoverPage() {
                         </div>
 
                         <div className="border-t border-gray-200 dark:border-gray-800 pt-4">
-                          <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                          <AiButtonOverlay disabled={!canUseAI()}>
                             <Button
                               onClick={handleCompare}
                               disabled={loading.compare || !letterBody}
@@ -1111,11 +1176,14 @@ export default function CoverPage() {
                     <CoverPreview aiPreview={aiPreview} />
                   </div>
                   {showPreviewBlur && !hasAiAccess && (
-                    <PreviewBlurOverlay onUnlock={() => {
-                      setShowPreviewBlur(false)
-                      setShowInputBlur(false)
-                      setLockedInputsRef(new Set())
-                    }} />
+                    <PreviewBlurOverlay 
+                      onUnlock={() => {
+                        setShowPreviewBlur(false)
+                        setShowInputBlur(false)
+                        setLockedInputsRef(new Set())
+                      }}
+                      showButton={previewState === 'preview_ended'}
+                    />
                   )}
                 </div>
               </div>
@@ -1142,12 +1210,25 @@ export default function CoverPage() {
             setVariants([])
             setShowCompare(false)
             showToast('success', 'Preview generated - click Apply to update')
-            // If trial is used and no access, apply the lock after selection (will be locked after 5s if this is first trial use)
-            if (!hasAiAccess && trialUsed && !aiPreview) {
-              // This was already locked during handleCompare, so maintain the state
-            }
           }}
         />
+      )}
+      
+      {/* Hard overlay + paywall when access is locked */}
+      {showPaywall && (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-transparent"
+            onClick={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+          {paywallVariant && (
+            <PreviewPaywallModal
+              isOpen={true}
+              variant={paywallVariant}
+            />
+          )}
+        </>
       )}
     </div>
   )

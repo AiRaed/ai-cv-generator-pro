@@ -3,36 +3,46 @@
 import { Sparkles, CreditCard } from 'lucide-react'
 import { Button } from '@/components/button'
 import { startCheckout } from '@/lib/checkout'
+import { LAUNCH_PRICE_GBP } from '@/lib/funnelConfig'
 import { useState, useEffect } from 'react'
-import { useAiAccess } from '@/lib/use-ai-access'
+import { canUseAI } from '@/utils/access'
 
 interface AiButtonOverlayProps {
   children: React.ReactNode
   disabled?: boolean
   onClick?: () => void
+  previewActive?: boolean
 }
 
-export function AiButtonOverlay({ children, disabled, onClick }: AiButtonOverlayProps) {
+export function AiButtonOverlay({ children, disabled, onClick, previewActive }: AiButtonOverlayProps) {
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const { valid: hasAiAccess, trialAvailable, trialUsed } = useAiAccess()
 
   // Prevent hydration mismatch by deferring browser-specific checks
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  // Allow clicks if user has access OR trial is available
-  // Only show overlay if trial is used and no access (and mounted to prevent hydration issues)
-  const shouldBlock = mounted && disabled && !hasAiAccess && !trialAvailable && trialUsed
-  const shouldAllowClick = hasAiAccess || trialAvailable
+  const priceLabel = `£${LAUNCH_PRICE_GBP.toFixed(2)}`
+
+  // Use canUseAI() as single source of truth
+  // Only show overlay if AI cannot be used (no access and no active preview) and mounted to prevent hydration issues
+  // During active preview, we hide legacy pay overlay in favor of the top sticky CTA
+  const canUse = mounted && canUseAI()
+  const shouldBlock = mounted && disabled && !canUse && !previewActive
+  const shouldAllowClick = canUse
 
   const handlePayClick = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setCheckoutLoading(true)
     try {
-      await startCheckout()
+      const success = await startCheckout()
+      // If checkout succeeded, redirect will happen in startCheckout
+      // If it failed (returned false), reset loading state
+      if (!success) {
+        setCheckoutLoading(false)
+      }
     } catch (error) {
       console.error('Checkout error:', error)
       setCheckoutLoading(false)
@@ -45,23 +55,13 @@ export function AiButtonOverlay({ children, disabled, onClick }: AiButtonOverlay
         {children}
       </div>
       {shouldBlock && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 dark:bg-black/80 rounded-lg backdrop-blur-sm z-10">
-          <div className="text-center p-4 space-y-3">
-            <div className="flex items-center justify-center gap-2 text-white mb-2">
-              <Sparkles className="w-5 h-5" />
-              <span className="font-semibold">Unlock AI for 24h — £1.99</span>
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handlePayClick}
-              disabled={checkoutLoading}
-              isLoading={checkoutLoading}
-              className="w-full"
-            >
-              <CreditCard className="w-4 h-4 mr-2" />
-              Pay £1.99
-            </Button>
+        <div className="absolute inset-0 flex items-center justify-end pr-3 py-2 z-10 pointer-events-none">
+          <div
+            className="inline-flex items-center gap-1 rounded-full bg-white/80 dark:bg-gray-900/80 border border-gray-200 dark:border-gray-700 px-2 py-1 text-xs text-gray-600 dark:text-gray-300 shadow-sm pointer-events-auto"
+            title={`Unlock AI for 24h — ${priceLabel}`}
+          >
+            <Sparkles className="w-3 h-3 text-violet-500" />
+            <span className="whitespace-nowrap">Locked — use top button</span>
           </div>
         </div>
       )}

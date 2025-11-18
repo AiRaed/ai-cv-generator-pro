@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, memo, Fragment } from 'react'
 import { motion } from 'framer-motion'
-import { Layout, Sparkles, Download, CheckCircle2, AlertCircle, FileText, Plus, Trash2, CreditCard, Loader2, Undo2 } from 'lucide-react'
+import { Layout, Sparkles, Download, CheckCircle2, AlertCircle, FileText, Plus, Trash2, CreditCard, Loader2, Undo2, Lock } from 'lucide-react'
 import { Button } from '@/components/button'
 import { Card } from '@/components/card'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -19,12 +19,31 @@ import { normalizeCVText, normalizeExperienceBullets, trimToLastFullSentence, no
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { extractDomain, formatUrlForDisplay } from '@/lib/utils'
+import { extractDomain, formatUrlForDisplay, cn } from '@/lib/utils'
 import { saveDraft, loadDraft, clearDraft, hasDraft } from '@/lib/draft'
 import { DescriptionText } from '@/components/DescriptionText'
 import { AIPreviewText } from '@/components/AIPreviewText'
+import { PreviewTopBar } from '@/components/PreviewTopBar'
+import { PreviewPaywallModal } from '@/components/PreviewPaywallModal'
+import { PREVIEW_SECONDS, FUNNEL_STRINGS, detectFunnelLanguage } from '@/lib/funnelConfig'
+import { trackEvent } from '@/lib/analytics'
+import { 
+  hasAiAccess as checkAiAccess, 
+  setAiAccessCookie, 
+  clearAiAccessCookie, 
+  clearPreviewEndAt, 
+  getPreviewEndAt, 
+  startPreview, 
+  isPreviewEnded, 
+  getPreviewState, 
+  getPreviewRemainingSeconds,
+  canUseAI,
+  getAiPreviewStartAt
+} from '@/utils/access'
 
 type Tab = 'personal' | 'summary' | 'experience' | 'education' | 'skills' | 'layout'
+
+type PreviewState = 'preview_active' | 'preview_ended' | 'unlocked_24h'
 
 interface Variant {
   id: 'A' | 'B' | 'C'
@@ -40,6 +59,8 @@ interface PreviewContentProps {
   education: any[]
   skills: string[]
   layout: string
+  isLocked: boolean
+  watermarkText?: string
 }
 
 // Memoized preview component that only re-renders on debounced updates
@@ -52,38 +73,72 @@ const PreviewContent = memo(function PreviewContent({
   education,
   skills,
   layout,
+  isLocked,
+  watermarkText,
 }: PreviewContentProps) {
-  // Helper function to render contact info in single compact row layout
+  // Helper function to format URLs for display (clean host/path without protocol, keep www)
+  const displayUrl = (url: string): string => {
+    try {
+      const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`)
+      return urlObj.hostname + (urlObj.pathname === '/' ? '' : urlObj.pathname)
+    } catch {
+      return url
+    }
+  }
+
+  // Helper function to render contact info in two-line layout
   const getContactInfo = () => {
-    const items: (string | JSX.Element)[] = []
-    
-    // Collect all contact items
+    // Helper to render a line with items separated by middle-dot
+    const renderLine = (items: JSX.Element[], lineKey: string) => {
+      if (items.length === 0) return null
+      
+      return (
+        <div key={lineKey} className="cv-contact-line">
+          {items.map((item, idx) => (
+            <Fragment key={idx}>
+              {idx > 0 && (
+                <>
+                  <span className="cv-contact-separator" aria-hidden="true">•</span>
+                  {'\u00A0'}
+                </>
+              )}
+              {item}
+            </Fragment>
+          ))}
+        </div>
+      )
+    }
+
+    // Build line 1: email, phone, city
+    const line1: JSX.Element[] = []
     if (personal.email && personal.email.trim()) {
-      items.push(
+      line1.push(
         <a key="email" href={`mailto:${personal.email}`} className="cv-contact-link">
           {personal.email}
         </a>
       )
     }
-    
     if (personal.phone && personal.phone.trim()) {
-      items.push(
+      line1.push(
         <a key="phone" href={`tel:${personal.phone}`} className="cv-contact-link">
           {personal.phone}
         </a>
       )
     }
-    
     if (personal.city && personal.city.trim()) {
-      items.push(<span key="city" className="cv-contact-text">{personal.city}</span>)
+      line1.push(
+        <span key="city" className="cv-contact-text">{personal.city}</span>
+      )
     }
-    
+
+    // Build line 2: linkedin, website
+    const line2: JSX.Element[] = []
     if (personal.linkedin && personal.linkedin.trim()) {
-      const displayText = formatUrlForDisplay(personal.linkedin)
+      const displayText = displayUrl(personal.linkedin)
       const hrefUrl = /^https?:\/\//i.test(personal.linkedin) 
         ? personal.linkedin 
         : `https://${personal.linkedin}`
-      items.push(
+      line2.push(
         <a 
           key="linkedin" 
           href={hrefUrl} 
@@ -95,13 +150,12 @@ const PreviewContent = memo(function PreviewContent({
         </a>
       )
     }
-    
     if (personal.website && personal.website.trim()) {
-      const displayText = formatUrlForDisplay(personal.website)
+      const displayText = displayUrl(personal.website)
       const hrefUrl = /^https?:\/\//i.test(personal.website) 
         ? personal.website 
         : `https://${personal.website}`
-      items.push(
+      line2.push(
         <a 
           key="website" 
           href={hrefUrl} 
@@ -113,36 +167,22 @@ const PreviewContent = memo(function PreviewContent({
         </a>
       )
     }
-    
-    // Render all items in single compact row with separators
-    // Separators wrap with their right-hand item to maintain proper wrapping
-    // Using non-breaking space (\u00A0) before separator to keep it with the following item
-    if (items.length > 0) {
-      return (
-        <>
-          {items.map((part, idx) => {
-            if (idx === 0) {
-              // First item: no separator before it
-              return (
-                <span key={idx}>{part}</span>
-              )
-            } else {
-              // Subsequent items: separator before each (wraps with the item)
-              // Non-breaking space after separator ensures it wraps with the following item
-              return (
-                <span key={idx}>
-                  <span className="cv-contact-separator" aria-hidden="true">·</span>
-                  {'\u00A0'}
-                  {part}
-                </span>
-              )
-            }
-          })}
-        </>
-      )
+
+    // Render lines only if they have items
+    const renderedLine1 = renderLine(line1, 'line1')
+    const renderedLine2 = renderLine(line2, 'line2')
+
+    // Return null if both lines are empty
+    if (!renderedLine1 && !renderedLine2) {
+      return null
     }
-    
-    return null
+
+    return (
+      <>
+        {renderedLine1}
+        {renderedLine2}
+      </>
+    )
   }
 
   // Filter experience items that have at least role or company
@@ -155,8 +195,9 @@ const PreviewContent = memo(function PreviewContent({
     (edu.degree && edu.degree.trim()) || (edu.school && edu.school.trim())
   ) || []
 
+  const summaryText = summaryPreview || summaryMd
   // Check if summary has content
-  const hasSummary = (summaryPreview && summaryPreview.trim()) || (summaryMd && summaryMd.trim())
+  const hasSummary = !!(summaryText && summaryText.trim())
 
   // Check if skills have content
   const hasSkills = skills && skills.length > 0
@@ -169,7 +210,7 @@ const PreviewContent = memo(function PreviewContent({
   const hasContactInfo = contactInfo !== null
 
   return (
-    <div id="cv-preview" className="cv-page text-left w-full">
+    <div id="cv-preview" className="cv-page text-left w-full relative">
         {/* Header - Only render if name or contact info exists */}
         {(hasName || hasContactInfo) && (
           <div className="cv-header-container">
@@ -190,7 +231,19 @@ const PreviewContent = memo(function PreviewContent({
           <div className="cv-section-spacing">
             <h5 className="cv-section-title">Summary</h5>
             <p className="cv-text-content">
-              {summaryPreview || summaryMd}
+              {!isLocked || !summaryText
+                ? summaryText
+                : (() => {
+                    const visibleLength = Math.floor(summaryText.length * 0.5)
+                    const visible = summaryText.slice(0, visibleLength)
+                    const hidden = summaryText.slice(visibleLength)
+                    return (
+                      <>
+                        <span>{visible}</span>
+                        {hidden && <span className="blur-sm">{hidden}</span>}
+                      </>
+                    )
+                  })()}
             </p>
           </div>
         )}
@@ -230,11 +283,32 @@ const PreviewContent = memo(function PreviewContent({
                         <p className="text-sm text-violet">{exp.period}</p>
                       )}
                     </div>
-                    {hasDescription && (
+                    {hasDescription && !isLocked && (
                       <DescriptionText 
                         text={exp.description} 
                         className="font-normal"
                       />
+                    )}
+                    {hasDescription && isLocked && (
+                      <div className="font-normal text-gray-700 dark:text-gray-200 whitespace-pre-line text-sm">
+                        {(() => {
+                          const raw = exp.description || ''
+                          const lines = raw.split(/\r?\n/)
+                          const visibleLines = lines.slice(0, 2).join('\n')
+                          const hiddenLines = lines.slice(2).join('\n')
+                          return (
+                            <>
+                              <span>{visibleLines}</span>
+                              {hiddenLines && (
+                                <span className="blur-sm">
+                                  {visibleLines ? '\n' : ''}
+                                  {hiddenLines}
+                                </span>
+                              )}
+                            </>
+                          )
+                        })()}
+                      </div>
                     )}
                     {/* Display preview separately */}
                     {experienceDescriptionPreviews[originalIdx] && (
@@ -330,9 +404,19 @@ export default function BuilderPage() {
   const [mounted, setMounted] = useState(false)
   const [draftLoaded, setDraftLoaded] = useState(false)
   const [skillsInputValue, setSkillsInputValue] = useState('')
+  const [previewRemaining, setPreviewRemaining] = useState<number | null>(null)
+  const [previewEnded, setPreviewEnded] = useState(false)
+  const [previewInitialized, setPreviewInitialized] = useState(false)
+  const [emitted30s, setEmitted30s] = useState(false)
+  const [paywallVariant, setPaywallVariant] = useState<'preview-ended' | 'access-expired' | null>(null)
+  const [funnelLang, setFunnelLang] = useState<'en' | 'ar'>('en')
   
-  // AI Access state
-  const { valid: hasAiAccess, remainingFormatted, setAccess, trialAvailable, trialUsed, markTrialUsed } = useAiAccess()
+  // AI Access state - using cookie-based access
+  const [hasAiAccess, setHasAiAccessState] = useState(false)
+  const { valid: legacyHasAccess, remainingFormatted, remainingMs, setAccess: setLegacyAccess } = useAiAccess()
+  const [previewState, setPreviewState] = useState<'preview_active' | 'preview_ended' | 'unlocked_24h' | 'not_started'>('not_started')
+  const previewActive = !hasAiAccess && previewState === 'preview_active'
+  const showPaywall = !hasAiAccess && previewState === 'preview_ended'
   
   // Toast function (defined early for use in effects)
   const showToast = useMemo(() => {
@@ -346,6 +430,64 @@ export default function BuilderPage() {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    setFunnelLang(detectFunnelLanguage())
+  }, [])
+  
+  // Initialize access state from cookie on mount and periodically check
+  useEffect(() => {
+    if (!mounted) return
+    setHasAiAccessState(checkAiAccess())
+    
+    // Check access every minute to catch expiration
+    const interval = setInterval(() => {
+      const hasAccess = checkAiAccess()
+      setHasAiAccessState(hasAccess)
+      if (!hasAccess) {
+        // Access expired, clear legacy access too
+        clearAiAccessCookie()
+      }
+    }, 60000) // Check every minute
+    
+    return () => clearInterval(interval)
+  }, [mounted])
+
+  // Handle successful payment redirect from Stripe
+  useEffect(() => {
+    if (!mounted) return
+    
+    const success = searchParams.get('success')
+    const canceled = searchParams.get('canceled')
+    
+    if (success === '1') {
+      // Payment successful: set cookie and clear preview state
+      try {
+        setAiAccessCookie()
+        clearPreviewEndAt()
+        setHasAiAccessState(true)
+        setLegacyAccess('stripe') // Also update legacy system for compatibility
+        trackEvent('checkout_success')
+        trackEvent('unlock_activated_24h')
+        showToast('success', '✅ Payment successful! AI access unlocked for 24 hours.')
+        
+        // Clean up URL by removing query params
+        const url = new URL(window.location.href)
+        url.searchParams.delete('success')
+        url.searchParams.delete('canceled')
+        window.history.replaceState({}, '', url.toString())
+      } catch (err) {
+        console.error('[Builder] Error setting AI access after payment:', err)
+        showToast('error', 'Payment successful but failed to unlock access. Please refresh the page.')
+      }
+    } else if (canceled === '1') {
+      // User cancelled payment - don't change state, just clean URL
+      const url = new URL(window.location.href)
+      url.searchParams.delete('success')
+      url.searchParams.delete('canceled')
+      window.history.replaceState({}, '', url.toString())
+    }
+  }, [mounted, searchParams, setLegacyAccess, showToast])
   
   const {
     personal,
@@ -447,30 +589,159 @@ export default function BuilderPage() {
     // Check if access just expired
     if (prevValid === true && hasAiAccess === false) {
       showToast('error', 'Your AI access expired. You can unlock again anytime.')
+      trackEvent('unlock_expired_24h')
+      setPaywallVariant('access-expired')
     }
     
-    // If user gains access, clear the blur
+    // If user gains access, clear the blur and reset preview funnel
     if (!prevValid && hasAiAccess) {
       setShowPreviewBlur(false)
       setShowInputBlur(false)
       setLockedInputsRef(new Set())
+      clearPreviewEndAt()
+      setPreviewRemaining(null)
+      setPreviewEnded(false)
+      setPreviewInitialized(false)
+      setEmitted30s(false)
+      setPaywallVariant(null)
+      setPreviewState('unlocked_24h')
+      trackEvent('unlock_activated_24h')
     }
     
     setPrevValid(hasAiAccess)
-    
-    // If trial is used and no access, immediately show lock on any existing AI content
-    if (!hasAiAccess && trialUsed && prevValid !== null) {
-      if (summaryPreview || Object.keys(experienceDescriptionPreviews).length > 0) {
-        setShowPreviewBlur(true)
-        setShowInputBlur(true)
-        const inputs = new Set<string>()
-        if (summaryPreview) inputs.add('summary')
-        Object.keys(experienceDescriptionPreviews).forEach(idx => inputs.add(`exp-${idx}`))
-        setLockedInputsRef(inputs)
-      }
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasAiAccess])
+
+  // Initialize preview state on mount from localStorage
+  useEffect(() => {
+    if (!mounted) return
+    if (hasAiAccess) {
+      setPreviewState('unlocked_24h')
+      setPreviewRemaining(null)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      return
+    }
+
+    const previewStartAt = getAiPreviewStartAt()
+    if (!previewStartAt) {
+      // Preview hasn't started yet
+      setPreviewState('not_started')
+      setPreviewRemaining(null)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      return
+    }
+
+    // Check if preview has ended
+    const ended = isPreviewEnded()
+    if (ended) {
+      setPreviewState('preview_ended')
+      setPreviewRemaining(0)
+      setPreviewEnded(true)
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      trackEvent('preview_ended')
+    } else {
+      // Preview is still active
+      const remaining = getPreviewRemainingSeconds()
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+    }
+    setPreviewInitialized(true)
+  }, [mounted, hasAiAccess])
+
+  // Listen to localStorage changes for preview state
+  useEffect(() => {
+    if (!mounted) return
+
+    const handleStorageChange = () => {
+      if (hasAiAccess) {
+        setPreviewState('unlocked_24h')
+        setPreviewRemaining(null)
+        setPreviewEnded(false)
+        setShowPreviewBlur(false)
+        setShowInputBlur(false)
+        return
+      }
+
+      const previewStartAt = getAiPreviewStartAt()
+      if (!previewStartAt) {
+        setPreviewState('not_started')
+        setPreviewRemaining(null)
+        setPreviewEnded(false)
+        setShowPreviewBlur(false)
+        setShowInputBlur(false)
+        return
+      }
+
+      const ended = isPreviewEnded()
+      if (ended) {
+        setPreviewState('preview_ended')
+        setPreviewRemaining(0)
+        setPreviewEnded(true)
+        setPaywallVariant('preview-ended')
+        setShowPreviewBlur(true)
+        setShowInputBlur(false)
+      } else {
+        const remaining = getPreviewRemainingSeconds()
+        setPreviewState('preview_active')
+        setPreviewRemaining(remaining)
+        setPreviewEnded(false)
+        setShowPreviewBlur(false)
+        setShowInputBlur(false)
+      }
+    }
+
+    window.addEventListener('localStorageChange', handleStorageChange as EventListener)
+    return () => {
+      window.removeEventListener('localStorageChange', handleStorageChange as EventListener)
+    }
+  }, [mounted, hasAiAccess])
+
+  // Tick preview countdown
+  useEffect(() => {
+    if (!mounted) return
+    if (hasAiAccess) return
+    if (previewState !== 'preview_active') return
+    if (previewRemaining === null || previewRemaining <= 0) return
+
+    const interval = setInterval(() => {
+      const currentEndAt = getPreviewEndAt()
+      if (!currentEndAt) {
+        clearInterval(interval)
+        return
+      }
+
+      const remaining = getPreviewRemainingSeconds()
+      
+      if (remaining <= 0) {
+        clearInterval(interval)
+        setPreviewEnded(true)
+        setPreviewState('preview_ended')
+        setPreviewRemaining(0)
+        console.log('preview_ended')
+        trackEvent('preview_ended')
+        setPaywallVariant('preview-ended')
+        return
+      }
+
+      setPreviewRemaining(remaining)
+      if (!emitted30s && remaining === 30) {
+        trackEvent('preview_30s')
+        setEmitted30s(true)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [mounted, hasAiAccess, previewState, previewRemaining, emitted30s])
 
   // Skills tokenization helper
   const tokenizeSkills = (input: string): string[] => {
@@ -566,12 +837,16 @@ export default function BuilderPage() {
   const handleCheckout = async () => {
     setCheckoutLoading(true)
     try {
-      await startCheckout()
+      const success = await startCheckout()
+      // If checkout succeeded, redirect will happen in startCheckout
+      // If it failed (returned false), reset loading state
+      if (!success) {
+        setCheckoutLoading(false)
+      }
     } catch (error) {
       console.error('Checkout error:', error)
       setCheckoutLoading(false)
     }
-    // Don't set loading to false if redirecting - redirect happens in startCheckout
   }
 
   // Debounce preview updates to avoid excessive re-renders while typing
@@ -599,16 +874,29 @@ export default function BuilderPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     const payload = {
@@ -625,9 +913,15 @@ export default function BuilderPage() {
     setLoading(prev => ({ ...prev, gen: true }))
 
     try {
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       })
 
@@ -645,15 +939,6 @@ export default function BuilderPage() {
         const normalized = normalizeSummaryParagraph(content)
         setSummaryPreview(normalized)
         showToast('success', 'Preview generated - click Apply to update')
-        
-        // If trial usage, show blur after 5 seconds on both preview and input
-        if (isTrialUsage) {
-          setTimeout(() => {
-            setShowPreviewBlur(true)
-            setShowInputBlur(true)
-            setLockedInputsRef(new Set(['summary']))
-          }, 5000)
-        }
       }
     } catch (error) {
       console.error('[AI] error generating CV:', error)
@@ -669,16 +954,29 @@ export default function BuilderPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     const payload = {
@@ -690,9 +988,15 @@ export default function BuilderPage() {
     setLoading(prev => ({ ...prev, rewrite: true }))
     
     try {
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const response = await fetch('/api/rewrite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       })
 
@@ -709,15 +1013,6 @@ export default function BuilderPage() {
         const normalized = normalizeSummaryParagraph(data.content)
         setSummaryPreview(normalized)
         showToast('success', 'Preview generated - click Apply to update')
-        
-        // If trial usage, show blur after 5 seconds on both preview and input
-        if (isTrialUsage) {
-          setTimeout(() => {
-            setShowPreviewBlur(true)
-            setShowInputBlur(true)
-            setLockedInputsRef(new Set(['summary']))
-          }, 5000)
-        }
       }
     } catch (error) {
       console.error('[AI] error rewriting:', error)
@@ -733,16 +1028,29 @@ export default function BuilderPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     const payload = {
@@ -753,9 +1061,15 @@ export default function BuilderPage() {
     setLoading(prev => ({ ...prev, compare: true }))
     
     try {
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const response = await fetch('/api/compare', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       })
 
@@ -776,15 +1090,6 @@ export default function BuilderPage() {
         setVariants(normalizedVariants)
         setShowCompare(true)
         showToast('success', 'Generated variants')
-        
-        // If trial usage, show blur after 5 seconds on both preview and input
-        if (isTrialUsage) {
-          setTimeout(() => {
-            setShowPreviewBlur(true)
-            setShowInputBlur(true)
-            setLockedInputsRef(new Set(['summary']))
-          }, 5000)
-        }
       }
     } catch (error) {
       console.error('[AI] error comparing:', error)
@@ -808,25 +1113,44 @@ export default function BuilderPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     // Set loading state immediately for instant feedback
     setLoading(prev => ({ ...prev, rewriteSummary: true }))
 
     try {
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const response = await fetch('/api/rewrite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           content: summaryMd,
           mode: mode,
@@ -844,15 +1168,6 @@ export default function BuilderPage() {
         const normalized = normalizeSummaryParagraph(data.content)
         setSummaryPreview(normalized)
         showToast('success', 'Preview generated - click Apply to update')
-        
-        // If trial usage, show blur after 5 seconds
-        if (isTrialUsage) {
-          setTimeout(() => {
-            setShowPreviewBlur(true)
-            setShowInputBlur(true)
-            setLockedInputsRef(new Set(['summary']))
-          }, 5000)
-        }
       }
     } catch (error) {
       console.error('[AI] error rewriting summary:', error)
@@ -873,25 +1188,44 @@ export default function BuilderPage() {
       return
     }
 
-    // Check access or trial
-    if (!hasAiAccess && !trialAvailable) {
-      showToast('error', 'Please unlock AI access to use this feature')
-      return
+    // Start preview timer on first AI button click if not paid and not started
+    if (!hasAiAccess) {
+      const endAt = startPreview()
+      const remaining = Math.max(0, Math.floor((endAt - Date.now()) / 1000))
+      setPreviewState('preview_active')
+      setPreviewRemaining(remaining)
+      setPreviewEnded(false)
+      setShowPreviewBlur(false)
+      setShowInputBlur(false)
+      if (!previewInitialized) {
+        setPreviewInitialized(true)
+        trackEvent('preview_started', { totalSeconds: PREVIEW_SECONDS })
+      }
     }
 
-    // Mark trial as used if this is trial usage
-    const isTrialUsage = !hasAiAccess && trialAvailable
-    if (isTrialUsage) {
-      markTrialUsed()
+    // Check if AI can be used (after starting preview)
+    if (!canUseAI()) {
+      // Preview ended, show paywall
+      setPreviewState('preview_ended')
+      setPaywallVariant('preview-ended')
+      setShowPreviewBlur(true)
+      setShowInputBlur(false)
+      return
     }
 
     // Set loading state immediately for instant feedback
     setLoading(prev => ({ ...prev, rewriteDescription: { ...prev.rewriteDescription, [index]: true } }))
 
     try {
+      const previewEndAt = getPreviewEndAt()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (previewEndAt) {
+        headers['x-preview-end'] = previewEndAt.toString()
+      }
+
       const response = await fetch('/api/rewrite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           content: originalText,
           mode: mode,
@@ -925,17 +1259,6 @@ export default function BuilderPage() {
         
         setExperienceDescriptionPreview(index, normalized)
         showToast('success', 'Preview generated')
-        
-        // If trial usage, show blur after 5 seconds
-        if (isTrialUsage) {
-          setTimeout(() => {
-            setShowPreviewBlur(true)
-            setShowInputBlur(true)
-            const newLocked = new Set(lockedInputsRef)
-            newLocked.add(`exp-${index}`)
-            setLockedInputsRef(newLocked)
-          }, 5000)
-        }
       } else {
         // No content in response
         console.error('[AI] No content in response:', data)
@@ -953,7 +1276,9 @@ export default function BuilderPage() {
   }
 
   const handleExport = async (format: 'pdf' | 'docx') => {
-    // Export is always available, no AI access needed
+    if (!hasAiAccess) {
+      return
+    }
     setLoading(prev => ({ ...prev, export: true }))
     try {
       const name = personal.fullName || 'CV'
@@ -1051,6 +1376,23 @@ export default function BuilderPage() {
     }
   }
 
+  const funnelStrings = FUNNEL_STRINGS[funnelLang]
+
+  // Temporary debug logs for paywall visibility – remove after verification
+  useEffect(() => {
+    if (showPaywall) {
+      console.log('paywall:active', { previewState })
+    } else {
+      console.log('paywall:hidden', { previewState })
+    }
+  }, [showPaywall, previewState])
+
+  useEffect(() => {
+    const paywallVisible = showPaywall && !!paywallVariant
+    if (paywallVisible) {
+      trackEvent('paywall_shown', { variant: paywallVariant })
+    }
+  }, [showPaywall, paywallVariant])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-platinum dark:from-gray-900 dark:to-page text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -1094,28 +1436,7 @@ export default function BuilderPage() {
               </div>
             ) : mounted ? (
               <>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  isLoading={checkoutLoading}
-                  onClick={handleCheckout}
-                  className="hidden md:inline-flex"
-                  aria-label="Unlock AI for 24h — £1.99"
-                >
-                  <CreditCard className="w-4 h-4 mr-2" />
-                  Pay with Stripe — £1.99
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  isLoading={checkoutLoading}
-                  onClick={handleCheckout}
-                  className="md:hidden"
-                  aria-label="Unlock AI for 24h — £1.99"
-                >
-                  <CreditCard className="w-4 h-4 mr-1" />
-                  Pay — £1.99
-                </Button>
+                {/* During funnel, the primary CTA lives in the sticky preview bar */}
               </>
             ) : (
               // SSR placeholder - matches the button layout to prevent hydration mismatch
@@ -1135,8 +1456,15 @@ export default function BuilderPage() {
           </div>
         </div>
       </header>
+      {/* Funnel bars */}
+      {!hasAiAccess && previewState === 'preview_active' && previewRemaining !== null && (
+        <PreviewTopBar
+          remainingSeconds={previewRemaining}
+          onPayClick={handleCheckout}
+        />
+      )}
 
-      <div className="container mx-auto px-4 py-8">
+      <div className={cn('container mx-auto px-4 py-8', showPaywall ? 'pointer-events-none select-none' : '')}>
         <div className="mb-6 text-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Create, edit, and optimize your professional CV.
@@ -1253,13 +1581,15 @@ export default function BuilderPage() {
                       <InputBlurOverlay onUnlock={() => {
                         setShowInputBlur(false)
                         setLockedInputsRef(new Set())
-                      }} />
+                      }} 
+                      showButton={previewState === 'preview_ended'}
+                      />
                     )}
                   </div>
                   {/* AI Improve Summary button */}
                   {summaryMd && summaryMd.trim() && (
                     <div className="flex justify-end mt-2">
-                      <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                      <AiButtonOverlay disabled={!canUseAI()} previewActive={previewActive}>
                         <button
                           onClick={() => handleRewriteSummary(rewriteMode)}
                           disabled={loading.rewriteSummary}
@@ -1446,7 +1776,9 @@ export default function BuilderPage() {
                               if (newLocked.size === 0) {
                                 setShowInputBlur(false)
                               }
-                            }} />
+                            }} 
+                            showButton={previewState === 'preview_ended'}
+                            />
                           )}
                         </div>
                         {/* Revert button - shows when there's a previous value to revert to */}
@@ -1464,7 +1796,7 @@ export default function BuilderPage() {
                         )}
                         {/* AI Rewrite button for description */}
                         {exp.description && (
-                          <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                          <AiButtonOverlay disabled={!canUseAI()} previewActive={previewActive}>
                             <button
                               onClick={() => handleRewriteDescription(idx, exp.description || '', rewriteMode)}
                               disabled={loading.rewriteDescription[idx]}
@@ -1703,24 +2035,7 @@ export default function BuilderPage() {
                     <Sparkles className="w-5 h-5 text-violet-accent" />
                     AI Engine
                   </h3>
-                  {mounted && !hasAiAccess && (showPreviewBlur || showInputBlur) && (
-                    <div className="text-right">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={handleCheckout}
-                        disabled={checkoutLoading}
-                        isLoading={checkoutLoading}
-                        aria-label="Unlock AI for 24h — £1.99"
-                      >
-                        <CreditCard className="w-4 h-4 mr-2" />
-                        Pay with Stripe — £1.99
-                      </Button>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Secure checkout by Stripe
-                      </p>
-                    </div>
-                  )}
+                  {/* Pay CTA is centralized in the preview funnel bar and modal */}
                 </div>
                 <div className="space-y-4">
                   <div>
@@ -1735,7 +2050,7 @@ export default function BuilderPage() {
                     <p className="text-sm text-muted-foreground mt-2">
                       💡 Type a few keywords (e.g., graphic design, leadership, problem solving) and AI will create a brand-new summary.
                     </p>
-                    <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                    <AiButtonOverlay disabled={!canUseAI()} previewActive={previewActive}>
                       <Button
                         onClick={handleGenerate}
                         disabled={loading.gen || !keywords}
@@ -1760,7 +2075,7 @@ export default function BuilderPage() {
                       <option value="creative">Creative Portfolio</option>
                       <option value="academic">Academic Formal</option>
                     </select>
-                    <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                    <AiButtonOverlay disabled={!canUseAI()} previewActive={previewActive}>
                       <Button
                         onClick={handleRewrite}
                         disabled={loading.rewrite || !summaryMd}
@@ -1773,7 +2088,7 @@ export default function BuilderPage() {
                     </AiButtonOverlay>
                   </div>
 
-                  <AiButtonOverlay disabled={!hasAiAccess && !trialAvailable}>
+                  <AiButtonOverlay disabled={!canUseAI()} previewActive={previewActive}>
                     <Button
                       onClick={handleCompare}
                       disabled={loading.compare || !summaryMd}
@@ -1797,12 +2112,13 @@ export default function BuilderPage() {
             <Card>
                 <div className="mb-4">
                   <h3 className="text-xl font-heading font-semibold mb-4">Preview</h3>
-                  <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-center">
                     <div className="flex flex-row gap-4 items-center justify-center">
                       <Button 
                         size="sm" 
                         onClick={() => handleExport('pdf')} 
                         isLoading={loading.export}
+                        disabled={!hasAiAccess}
                         className="rounded-full px-4 py-2 focus-visible:ring-2 focus-visible:ring-violet-accent focus-visible:ring-offset-2"
                         aria-label="Download PDF"
                       >
@@ -1814,7 +2130,8 @@ export default function BuilderPage() {
                         variant="outline" 
                         onClick={() => handleExport('docx')} 
                         isLoading={loading.export}
-                        className="rounded-full px-4 py-2 border-2 border-violet-accent text-violet-accent hover:bg-violet-accent hover:text-white bg-transparent dark:bg-transparent dark:border-violet-accent dark:text-violet-accent dark:hover:bg-violet-accent dark:hover:text-white focus-visible:ring-2 focus-visible:ring-violet-accent focus-visible:ring-offset-2"
+                        disabled={!hasAiAccess}
+                        className="rounded-full px-4 py-2 border-2 border-violet-accent text-violet-accent hover:bg-violet-accent hover:text-white bg-transparent dark:bg-transparent dark:border-violet-accent dark:text-violet-accent dark:hover:bg-violet-accent dark:hover:text-white focus-visible:ring-2 focus-visible:ring-violet-accent focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         aria-label="Download DOCX"
                         aria-describedby="docx-helper-text"
                       >
@@ -1822,6 +2139,15 @@ export default function BuilderPage() {
                         DOCX
                       </Button>
                     </div>
+                    {!hasAiAccess && (
+                      <div
+                        className="mt-2 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+                        title={funnelStrings.lockTooltip}
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>{funnelStrings.lockTooltip}</span>
+                      </div>
+                    )}
                     <span 
                       id="docx-helper-text" 
                       className="text-xs mt-2 text-center"
@@ -1838,7 +2164,31 @@ export default function BuilderPage() {
                 </div>
               <div className="flex justify-center">
                 <div className="a4-preview-frame transition-all duration-500 relative">
-                  <div ref={previewRef} key={debouncedUpdateKey} className="a4-paper cv-container">
+                  <div
+                    ref={previewRef}
+                    key={debouncedUpdateKey}
+                    className={cn(
+                      'a4-paper cv-container',
+                      !hasAiAccess ? 'select-none' : ''
+                    )}
+                    onCopy={(e) => {
+                      if (!hasAiAccess) e.preventDefault()
+                    }}
+                    onPaste={(e) => {
+                      if (!hasAiAccess) e.preventDefault()
+                    }}
+                    onContextMenu={(e) => {
+                      if (!hasAiAccess) e.preventDefault()
+                    }}
+                    onKeyDown={(e) => {
+                      if (!hasAiAccess && (e.metaKey || e.ctrlKey)) {
+                        const key = e.key.toLowerCase()
+                        if (key === 'c' || key === 'v' || key === 's') {
+                          e.preventDefault()
+                        }
+                      }
+                    }}
+                  >
                     <PreviewContent
                       personal={personal}
                       summaryMd={summaryMd}
@@ -1848,10 +2198,22 @@ export default function BuilderPage() {
                       education={education}
                       skills={skills}
                       layout={layout}
+                      isLocked={showPaywall}
+                      watermarkText={showPaywall ? funnelStrings.watermark : undefined}
                     />
                   </div>
+                  {showPaywall && (
+                    <div className="pointer-events-none absolute inset-0 flex items-start justify-center pt-4">
+                      <span className="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-400 bg-white/80 dark:bg-gray-900/80 px-3 py-1 rounded-full">
+                        {funnelStrings.watermark}
+                      </span>
+                    </div>
+                  )}
                   {showPreviewBlur && !hasAiAccess && (
-                    <PreviewBlurOverlay onUnlock={() => setShowPreviewBlur(false)} />
+                    <PreviewBlurOverlay 
+                      onUnlock={() => setShowPreviewBlur(false)} 
+                      showButton={previewState === 'preview_ended'}
+                    />
                   )}
                 </div>
               </div>
@@ -1868,6 +2230,22 @@ export default function BuilderPage() {
         onSelect={handleSelectVariant}
         paragraph={true}
       />
+      {/* Hard overlay + paywall when access is locked */}
+      {showPaywall && (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-transparent"
+            onClick={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+          {paywallVariant && (
+            <PreviewPaywallModal
+              isOpen={true}
+              variant={paywallVariant}
+            />
+          )}
+        </>
+      )}
 
     </div>
   )

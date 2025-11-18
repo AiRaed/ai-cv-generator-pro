@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!process.env.NEXT_PUBLIC_STRIPE_PRICE_ID) {
-      console.error("NEXT_PUBLIC_STRIPE_PRICE_ID is not configured");
+    if (!process.env.STRIPE_PRICE_ID) {
+      console.error("STRIPE_PRICE_ID is not configured");
       return NextResponse.json(
         { error: "Stripe price ID not configured" },
         { status: 500 }
@@ -28,13 +28,13 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       line_items: [
         {
-          price: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID,
+          price: process.env.STRIPE_PRICE_ID,
           quantity: 1,
         },
       ],
       mode: "payment",
-      success_url: `${request.nextUrl.origin}/success`,
-      cancel_url: `${request.nextUrl.origin}/cancel`,
+      success_url: `${request.nextUrl.origin}/builder?success=1`,
+      cancel_url: `${request.nextUrl.origin}/builder?canceled=1`,
     });
 
     return NextResponse.json({ url: session.url });
